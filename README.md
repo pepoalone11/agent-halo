@@ -192,7 +192,7 @@ If no authorized local source is available, stop and ask the user to set the var
 ### Requirements
 
 - macOS
-- Letta Code `0.28.x` recommended (`0.27.18+` has the core activity events, but capabilities vary by runtime)
+- Letta Code `0.30.x` recommended and verified through `0.30.14` (`0.27.18+` has the core activity events, but capabilities vary by runtime; reflection child processes on `0.30.14+` intentionally do not load mods)
 - pnpm `10.x`
 - Rust and the Tauri toolchain for desktop builds
 - Camera permission only if the optional Movement Break is enabled and explicitly started

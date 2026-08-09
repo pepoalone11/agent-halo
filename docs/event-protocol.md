@@ -78,6 +78,8 @@ The desktop app may expose a separate native terminal-host focus action. With tr
 
 Lower-level Letta Code app-server/device protocol exports richer queue, approval, tool-execution, and result events. Agent Halo does not consume that internal websocket protocol; the bridge stays on public mod events plus supported local hook events. `attention_requested` means only “the local harness asked for user input,” not that Agent Halo owns or can resolve the approval queue.
 
+Letta Code `0.30.14` disables mods inside reflection child processes. Those workers therefore do not emit their own Agent Halo mod stream or independent session row. Their absence is not a bridge failure: the owning root conversation still reports its supported turn, tool, and model activity. Agent Halo must not synthesize a reflection child lane from process inspection or transcript text; a distinct child row remains valid only when a real public event scope reaches the bridge.
+
 ## Event types
 
 ### `bridge_ready`
