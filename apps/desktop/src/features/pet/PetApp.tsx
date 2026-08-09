@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Clock3, Dumbbell, Play, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, Clock3, Dumbbell, Play, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
-import type { IMovementPoseSnapshot } from "../movement/types";
+import { createInitialMovementSnapshot, getMovementExercise, MOVEMENT_EXERCISES } from "../movement/exercises";
+import type { IMovementPoseSnapshot, MovementExerciseId } from "../movement/types";
 import { HaloPet } from "../session/HaloPet";
 import type { CompletionPetSize } from "./preferences";
 import type { CompletionPetAction, ICompletionPetNativeState, ICompletionPetSummon } from "./types";
@@ -28,24 +29,15 @@ const DEMO_SUMMON: ICompletionPetSummon = {
   actionLabel: "Start Short break",
 };
 
-const INITIAL_MOVEMENT_SNAPSHOT: IMovementPoseSnapshot = {
-  status: "idle",
-  repCount: 0,
-  targetReps: 10,
-  guidance: "Camera starts only after you choose 10 Squats",
-  permission: "notDetermined",
-  sessionId: null,
-  shoulderLineY: null,
-  targetLineY: 0.86,
-  depthProgress: 0,
-  error: null,
-};
+const INITIAL_MOVEMENT_SNAPSHOT = createInitialMovementSnapshot();
 
 const isNative = (): boolean => typeof window.__TAURI_INTERNALS__ !== "undefined";
 
 export const PetApp = () => {
   const [summon, setSummon] = useState<ICompletionPetSummon | null>(DEMO_PET ? DEMO_SUMMON : null);
   const [expanded, setExpanded] = useState(SEARCH_PARAMS.has("demoPetExpanded"));
+  const [exercisePickerOpen, setExercisePickerOpen] = useState(false);
+  const [selectedExerciseId, setSelectedExerciseId] = useState<MovementExerciseId | null>(null);
   const [movementActive, setMovementActive] = useState(false);
   const [movementSnapshot, setMovementSnapshot] = useState<IMovementPoseSnapshot>(INITIAL_MOVEMENT_SNAPSHOT);
   const [busy, setBusy] = useState(false);
@@ -57,6 +49,8 @@ export const PetApp = () => {
   const closeActionRef = useRef<HTMLButtonElement | null>(null);
   const companionRef = useRef<HTMLButtonElement | null>(null);
   const movementActionRef = useRef<HTMLButtonElement | null>(null);
+  const squatActionRef = useRef<HTMLButtonElement | null>(null);
+  const reachActionRef = useRef<HTMLButtonElement | null>(null);
   const previousSummonIdRef = useRef<string | null>(summon?.id ?? null);
   const rebaseTimerRef = useRef<number | null>(null);
   const movementActiveRef = useRef(false);
@@ -90,6 +84,8 @@ export const PetApp = () => {
     rebaseTimerRef.current = null;
     setRebaseOffset(null);
     setExpanded(false);
+    setExercisePickerOpen(false);
+    setSelectedExerciseId(null);
     movementActiveRef.current = false;
     setMovementActive(false);
     setMovementSnapshot(INITIAL_MOVEMENT_SNAPSHOT);
@@ -133,6 +129,7 @@ export const PetApp = () => {
       setRebaseOffset(null);
     }
     setExpanded(open);
+    if (!open) setExercisePickerOpen(false);
     if (open && focusAction) window.requestAnimationFrame(() => (summon?.preview ? closeActionRef.current : startActionRef.current)?.focus());
     if (!open && focusAction) window.requestAnimationFrame(() => companionRef.current?.focus());
   };
@@ -140,6 +137,7 @@ export const PetApp = () => {
   const hide = async (): Promise<void> => {
     movementActiveRef.current = false;
     setMovementActive(false);
+    setExercisePickerOpen(false);
     setSummon(null);
     setExpanded(false);
     if (DEMO_PET || !isNative()) return;
@@ -153,6 +151,7 @@ export const PetApp = () => {
       window.__AGENT_HALO_PET_ACTIONS__ = [...(window.__AGENT_HALO_PET_ACTIONS__ ?? []), action];
       movementActiveRef.current = false;
       setMovementActive(false);
+      setExercisePickerOpen(false);
       setSummon(null);
       return;
     }
@@ -160,23 +159,39 @@ export const PetApp = () => {
       await invoke("submit_completion_pet_action", { action });
       movementActiveRef.current = false;
       setMovementActive(false);
+      setExercisePickerOpen(false);
       setSummon(null);
     } catch {
       setBusy(false);
     }
   };
 
-  const startMovement = async (): Promise<void> => {
+  const openExercisePicker = (): void => {
     if (busy || summon?.preview || !summon?.movementBreakEnabled) return;
+    setExercisePickerOpen(true);
+    window.requestAnimationFrame(() => squatActionRef.current?.focus());
+  };
+
+  const closeExercisePicker = (): void => {
+    setExercisePickerOpen(false);
+    window.requestAnimationFrame(() => movementActionRef.current?.focus());
+  };
+
+  const startMovement = async (exerciseId: MovementExerciseId): Promise<void> => {
+    if (busy || summon?.preview || !summon?.movementBreakEnabled) return;
+    const exercise = getMovementExercise(exerciseId);
     setBusy(true);
+    setExercisePickerOpen(false);
+    setSelectedExerciseId(exercise.id);
     const movementAttempt = movementAttemptRef.current + 1;
     movementAttemptRef.current = movementAttempt;
     movementCompletionSubmittedRef.current = false;
-    setMovementSnapshot({ ...INITIAL_MOVEMENT_SNAPSHOT, status: "requesting", sessionId: `${summon.id}:${movementAttempt}`, guidance: "Waiting for Camera permission…" });
+    const initialSnapshot = createInitialMovementSnapshot(exercise.id, `${summon.id}:${movementAttempt}`);
+    setMovementSnapshot({ ...initialSnapshot, status: "requesting", guidance: "Waiting for Camera permission…" });
     if (DEMO_PET || !isNative()) {
       setMovementActive(true);
       setExpanded(false);
-      setMovementSnapshot({ ...INITIAL_MOVEMENT_SNAPSHOT, status: "tracking", guidance: "Stand tall to begin" });
+      setMovementSnapshot({ ...initialSnapshot, status: "tracking", guidance: exercise.initialGuidance });
       setBusy(false);
       return;
     }
@@ -187,14 +202,14 @@ export const PetApp = () => {
       setExpanded(false);
       setBusy(false);
       if (SEARCH_PARAMS.has("demoMovementCompleted")) {
-        setMovementSnapshot({ ...INITIAL_MOVEMENT_SNAPSHOT, status: "completed", repCount: 10, sessionId: `${summon.id}:${movementAttempt}`, guidance: "10 squats complete", depthProgress: 1 });
+        setMovementSnapshot({ ...initialSnapshot, status: "completed", repCount: exercise.targetReps, guidance: exercise.completionGuidance, progress: 1 });
       } else if (SEARCH_PARAMS.has("demoCameraOff")) {
-        setMovementSnapshot({ ...INITIAL_MOVEMENT_SNAPSHOT, status: "tracking", permission: "authorized", sessionId: `${summon.id}:${movementAttempt}`, guidance: "Stand tall to arm the counter" });
+        setMovementSnapshot({ ...initialSnapshot, status: "tracking", permission: "authorized", guidance: exercise.initialGuidance });
       }
       return;
     } catch (error) {
       setMovementSnapshot({
-        ...INITIAL_MOVEMENT_SNAPSHOT,
+        ...initialSnapshot,
         status: "error",
         guidance: "Camera could not start",
         error: error instanceof Error ? error.message : "Could not start the local pose session",
@@ -212,8 +227,10 @@ export const PetApp = () => {
     movementActiveRef.current = false;
     setMovementActive(false);
     setExpanded(true);
-    setMovementSnapshot(INITIAL_MOVEMENT_SNAPSHOT);
-    window.requestAnimationFrame(() => movementActionRef.current?.focus());
+    setExercisePickerOpen(true);
+    const exerciseId = selectedExerciseId ?? movementSnapshot.exerciseId;
+    setMovementSnapshot(createInitialMovementSnapshot(exerciseId));
+    window.requestAnimationFrame(() => (exerciseId === "overhead-reach" ? reachActionRef.current : squatActionRef.current)?.focus());
     if (DEMO_PET || !isNative()) {
       setBusy(false);
       return;
@@ -270,7 +287,7 @@ export const PetApp = () => {
             cameraPreviewEnabled={isNative() && !SEARCH_PARAMS.has("demoCameraOff")}
             demoPoseEnabled={SEARCH_PARAMS.has("demoPose")}
             onCancel={() => void cancelMovement()}
-            onRetry={() => void startMovement()}
+            onRetry={() => void startMovement(selectedExerciseId ?? movementSnapshot.exerciseId)}
             onSnapshot={setMovementSnapshot}
             onStartBreak={() => void submit("start-break")}
           />
@@ -280,13 +297,42 @@ export const PetApp = () => {
   }
 
   return (
-    <main className="completion-pet-root" data-visible="true" data-expanded={expanded ? "true" : "false"} data-rebasing={rebaseOffset ? "true" : "false"} data-pet-size={summon.petSize} data-preview={summon.preview ? "true" : "false"} data-movement-option={summon.movementBreakEnabled ? "true" : "false"} style={rebaseOffset ? { "--pet-rebase-x": `${rebaseOffset.x}px`, "--pet-rebase-y": `${rebaseOffset.y}px` } as CSSProperties : undefined} onKeyDown={(event) => {
+    <main className="completion-pet-root" data-visible="true" data-expanded={expanded ? "true" : "false"} data-exercise-picker={exercisePickerOpen ? "true" : "false"} data-rebasing={rebaseOffset ? "true" : "false"} data-pet-size={summon.petSize} data-preview={summon.preview ? "true" : "false"} data-movement-option={summon.movementBreakEnabled ? "true" : "false"} style={rebaseOffset ? { "--pet-rebase-x": `${rebaseOffset.x}px`, "--pet-rebase-y": `${rebaseOffset.y}px` } as CSSProperties : undefined} onKeyDown={(event) => {
       if (!expanded || event.key !== "Escape") return;
       event.preventDefault();
+      if (exercisePickerOpen) {
+        closeExercisePicker();
+        return;
+      }
       void setBubbleOpen(false, true);
     }}>
       <span className="sr-only" role="status" aria-live="polite">{summon.preview ? "Pet preview." : `Focus complete. ${summon.nextPhase === "long-break" ? "Long break" : "Short break"} ready.`}</span>
       {expanded ? (
+        exercisePickerOpen ? (
+          <section className="completion-pet-radial completion-pet-exercise-picker" role="dialog" aria-label="Choose movement break exercise" id="completion-pet-actions">
+            <span className="completion-pet-orbit" aria-hidden="true" />
+            {MOVEMENT_EXERCISES.map((exercise) => (
+              <button
+                ref={exercise.id === "squat" ? squatActionRef : reachActionRef}
+                className="completion-pet-option completion-pet-exercise-option"
+                data-exercise={exercise.id}
+                type="button"
+                disabled={busy}
+                onClick={() => void startMovement(exercise.id)}
+                aria-label={exercise.actionLabel}
+                key={exercise.id}
+              >
+                {exercise.id === "squat" ? <Dumbbell size={19} strokeWidth={2.3} /> : <ArrowUp size={20} strokeWidth={2.3} />}
+                <span>{exercise.pickerLabel}<br /><small>{exercise.pickerDescription}</small></span>
+              </button>
+            ))}
+            <button className="completion-pet-option completion-pet-exercise-back" type="button" disabled={busy} onClick={closeExercisePicker} aria-label="Back to break actions">
+              <ArrowLeft size={18} strokeWidth={2.3} />
+              <span>Back</span>
+            </button>
+            <span className="completion-pet-context">Pick one · camera starts next</span>
+          </section>
+        ) : (
         <section className="completion-pet-radial" role="dialog" aria-label={summon.preview ? "Pet preview controls" : "Focus complete actions"} id="completion-pet-actions">
           <span className="completion-pet-orbit" aria-hidden="true" />
           {summon.preview ? null : (
@@ -296,9 +342,9 @@ export const PetApp = () => {
                 <span>{busy ? "…" : <>{summon.nextPhase === "long-break" ? "Long" : "Short"}<br />break</>}</span>
               </button>
               {summon.movementBreakEnabled ? (
-                <button ref={movementActionRef} className="completion-pet-option completion-pet-movement" type="button" disabled={busy} onClick={() => void startMovement()} aria-label="Start 10 Squats movement break">
+                <button ref={movementActionRef} className="completion-pet-option completion-pet-movement" type="button" disabled={busy} onClick={openExercisePicker} aria-label="Choose Movement Break exercise">
                   <Dumbbell size={20} strokeWidth={2.3} />
-                  <span>10×<br />Squats</span>
+                  <span>Choose<br />move</span>
                 </button>
               ) : null}
               <button className="completion-pet-option completion-pet-later" type="button" disabled={busy} onClick={() => void hide()} aria-label="Not now">
@@ -313,6 +359,7 @@ export const PetApp = () => {
           </button>
           <span className="completion-pet-context">{summon.title}</span>
         </section>
+        )
       ) : null}
 
       <div className="completion-pet-dock">

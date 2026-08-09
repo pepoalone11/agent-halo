@@ -12,7 +12,7 @@ The Completion Pet is event-only:
 - Skip, Restart phase, Reset all, Pause, break completion, and app launch do not summon it;
 - the Pet appears in a separate transparent Tauri window without activating or focusing Agent Halo;
 - clicking the Pet opens transparent radial **Start Short break** (or **Start Long break**), **Later**, and **Close** controls;
-- when Movement Break is enabled, those controls also offer an explicit **10 Squats** action; it is the only Pet path that may request camera access;
+- when Movement Break is enabled, those controls offer a camera-free exercise chooser; only a specific **10 Squats** or **10 Overhead Reaches** click may request camera access;
 - **Close** and **Later** hide only the current summon;
 - Setup owns one global Pet On/Off preference, default On;
 - turning Pet Off hides any active summon immediately;
@@ -32,7 +32,7 @@ main Pomodoro state
   -> main renderer starts the prepared break
 ```
 
-The native Pet window stores the latest summon and one bounded pending action. The hidden Pet renderer reads this projection; the main renderer consumes actions and validates that the requested Short/Long break is still idle before starting it. Movement Break reuses this boundary: explicit entry creates a summon-bound native attempt token, the isolated Pet WebView runs one local camera stream through bundled shoulder tracking, and only that current attempt may queue a `movement-complete` action for the main renderer to revalidate. See `docs/movement-break.md`.
+The native Pet window stores the latest summon and one bounded pending action. The hidden Pet renderer reads this projection; the main renderer consumes actions and validates that the requested Short/Long break is still idle before starting it. Movement Break reuses this boundary: choosing a specific exercise creates a summon-bound native attempt token, the isolated Pet WebView runs one local camera stream through the shared bundled pose runtime and the selected exercise tracker, and only that current attempt may queue a `movement-complete` action for the main renderer to revalidate. See `docs/movement-break.md`.
 
 ## Notification fallback
 
@@ -52,7 +52,7 @@ This keeps the OS-owned fallback available when the renderer/app is unavailable 
 - The radial-menu frame is `260 × 230` logical px. Three circular actions orbit the Pet on a transparent surface; the dashed orbit and circular controls make the deliberate interaction area visible even without a backing card.
 - The frame remains tight because transparent WebViews still have rectangular native hitboxes.
 - Default position: 20px from the selected display's visible bottom-right corner.
-- Dragging persists a normalized companion anchor per display id/fingerprint and clamps to the current visible frame.
+- Dragging persists a normalized companion anchor with its source display id/fingerprint and clamps to the current visible frame. The current Setup display selection remains authoritative: if it differs from the saved Pet display, Agent Halo applies the normalized anchor on the selected display rather than showing Pet on the old screen.
 - The radial action surface grows around the Pet's screen-space center when space permits, clamps fully into the visible frame, and returns to the saved collapsed position when it closes.
 - Pet is created and passively shown non-focusable; passive show never calls `set_focus` or application activation.
 - A deliberate user click may explicitly make the Pet focusable and focus its controls.

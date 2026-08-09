@@ -1,6 +1,6 @@
 import { Camera, CameraOff, Dumbbell, Play, RotateCcw, X } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { measureShoulderLine, MOVEMENT_TARGET_REPS, SHOULDER_TARGET_Y, ShoulderSquatCounter } from "./model";
+import { getMovementExercise } from "./exercises";
 import { createLocalPoseLandmarker } from "./runtime";
 import type { IMovementPoseSnapshot } from "./types";
 import "../../styles/movement.css";
@@ -19,13 +19,14 @@ export interface IMovementChallengeProps {
 }
 
 export const MovementChallenge = ({ busy, cameraPreviewEnabled, demoPoseEnabled, onCancel, onRetry, onSnapshot, onStartBreak, snapshot }: IMovementChallengeProps) => {
+  const exercise = getMovementExercise(snapshot.exerciseId);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [previewStatus, setPreviewStatus] = useState<"waiting" | "active" | "unavailable">("waiting");
   const terminalFailure = ["denied", "unavailable", "error"].includes(snapshot.status);
   const cameraActive = snapshot.status === "tracking";
   const complete = snapshot.status === "completed";
-  const shoulderLineY = lineCoordinate(snapshot.shoulderLineY);
+  const trackingLineY = lineCoordinate(snapshot.trackingLineY);
   const targetLineY = lineCoordinate(snapshot.targetLineY);
 
   useEffect(() => {
@@ -46,7 +47,7 @@ export const MovementChallenge = ({ busy, cameraPreviewEnabled, demoPoseEnabled,
     let animationFrame = 0;
     let lastInferenceAt = 0;
     let completionSent = false;
-    const counter = new ShoulderSquatCounter();
+    const tracker = exercise.createTracker();
 
     const stop = (): void => {
       if (animationFrame) window.cancelAnimationFrame(animationFrame);
@@ -82,10 +83,18 @@ export const MovementChallenge = ({ busy, cameraPreviewEnabled, demoPoseEnabled,
         if (disposed) return;
         setPreviewStatus("active");
         if (demoPoseEnabled) {
-          onSnapshot({ ...snapshot, status: "tracking", permission: "authorized", guidance: "Squat down · move white to green", shoulderLineY: 0.31, targetLineY: SHOULDER_TARGET_Y, depthProgress: 0.48 });
+          onSnapshot({
+            ...snapshot,
+            status: "tracking",
+            permission: "authorized",
+            guidance: exercise.initialGuidance,
+            trackingLineY: exercise.demoTrackingLineY,
+            targetLineY: exercise.demoTargetLineY,
+            progress: exercise.demoProgress,
+          });
           return;
         }
-        onSnapshot({ ...snapshot, status: "requesting", permission: "authorized", guidance: "Loading local shoulder tracker…", error: null });
+        onSnapshot({ ...snapshot, status: "requesting", permission: "authorized", guidance: "Loading local pose tracker…", error: null });
         const nextLandmarker = await createLocalPoseLandmarker();
         if (disposed) {
           nextLandmarker.close();
@@ -99,20 +108,20 @@ export const MovementChallenge = ({ busy, cameraPreviewEnabled, demoPoseEnabled,
             if (timestampMs - lastInferenceAt >= 80 && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
               lastInferenceAt = timestampMs;
               const normalized = landmarker.detectForVideo(video, timestampMs).landmarks[0] ?? [];
-              const measurement = measureShoulderLine(normalized);
-              const event = counter.update(timestampMs, measurement);
-              const trackingLost = event.type === "tracking-lost";
-              const completed = event.type === "completed";
+              const update = tracker.update(timestampMs, normalized);
+              const trackingLost = update.event === "tracking-lost";
+              const completed = update.event === "completed";
               onSnapshot({
+                exerciseId: exercise.id,
                 status: completed ? "completed" : "tracking",
-                repCount: counter.count,
-                targetReps: MOVEMENT_TARGET_REPS,
-                guidance: completed ? "10 squats complete" : trackingLost ? "Keep both shoulders inside the camera" : counter.guidance,
+                repCount: update.repCount,
+                targetReps: exercise.targetReps,
+                guidance: completed ? exercise.completionGuidance : trackingLost ? exercise.trackingLostGuidance : update.guidance,
                 permission: "authorized",
                 sessionId: snapshot.sessionId,
-                shoulderLineY: measurement?.shoulderY ?? null,
-                targetLineY: counter.targetLineY,
-                depthProgress: completed ? 1 : counter.depthProgress,
+                trackingLineY: update.trackingLineY,
+                targetLineY: update.targetLineY,
+                progress: completed ? 1 : update.progress,
                 error: null,
               });
               if (completed && !completionSent) {
@@ -123,7 +132,7 @@ export const MovementChallenge = ({ busy, cameraPreviewEnabled, demoPoseEnabled,
             }
           } catch (error) {
             stop();
-            if (!disposed) onSnapshot({ ...snapshot, status: "error", guidance: "Shoulder tracking stopped", error: error instanceof Error ? error.message : "Local pose inference failed" });
+            if (!disposed) onSnapshot({ ...snapshot, status: "error", guidance: "Pose tracking stopped", error: error instanceof Error ? error.message : "Local pose inference failed" });
             return;
           }
           animationFrame = window.requestAnimationFrame(detect);
@@ -148,7 +157,7 @@ export const MovementChallenge = ({ busy, cameraPreviewEnabled, demoPoseEnabled,
       disposed = true;
       stop();
     };
-  }, [cameraPreviewEnabled, demoPoseEnabled, snapshot.sessionId]);
+  }, [cameraPreviewEnabled, demoPoseEnabled, exercise.id, snapshot.sessionId]);
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>): void => {
     if (event.key !== "Escape" || busy) return;
@@ -157,18 +166,18 @@ export const MovementChallenge = ({ busy, cameraPreviewEnabled, demoPoseEnabled,
   };
 
   return (
-    <section className="movement-challenge" role="dialog" aria-label="10 Squats movement break" data-status={snapshot.status} onKeyDown={handleKeyDown}>
+    <section className="movement-challenge" role="dialog" aria-label={exercise.dialogLabel} data-exercise={exercise.id} data-status={snapshot.status} onKeyDown={handleKeyDown}>
       <header className="movement-header">
-        <span className="movement-title"><Dumbbell size={15} strokeWidth={2.4} />Squat set</span>
+        <span className="movement-title"><Dumbbell size={15} strokeWidth={2.4} />{exercise.title}</span>
         <span className="movement-local"><span className="movement-local-dot" data-active={cameraActive} />On this Mac</span>
         <button ref={closeButtonRef} className="movement-icon-button" type="button" onClick={onCancel} disabled={busy} aria-label="Close movement break"><X size={16} strokeWidth={2.3} /></button>
       </header>
 
       <div className="movement-body">
-        <div className="movement-pose-stage" aria-label={cameraActive ? "Live shoulder tracking camera" : "Movement camera status"}>
+        <div className="movement-pose-stage" aria-label={cameraActive ? `Live ${exercise.title} tracking camera` : "Movement camera status"}>
           {cameraPreviewEnabled ? <video ref={videoRef} className="movement-camera-preview" autoPlay muted playsInline aria-label="Live mirrored Movement Break camera" /> : null}
-          {!complete && shoulderLineY !== null ? <span className="movement-shoulder-line" style={{ top: `${shoulderLineY}%` }} aria-hidden="true" /> : null}
-          {!complete && targetLineY !== null ? <span className="movement-target-line" style={{ top: `${targetLineY}%` }} aria-hidden="true" /> : null}
+          {!complete && trackingLineY !== null ? <span className="movement-tracking-line" data-label={exercise.trackingLabel} style={{ top: `${trackingLineY}%` }} aria-hidden="true" /> : null}
+          {!complete && targetLineY !== null ? <span className="movement-target-line" data-label={exercise.targetLabel} style={{ top: `${targetLineY}%` }} aria-hidden="true" /> : null}
           {complete ? (
             <div className="movement-success">
               <span className="movement-success-spark is-left" aria-hidden="true">✨</span>
@@ -181,16 +190,16 @@ export const MovementChallenge = ({ busy, cameraPreviewEnabled, demoPoseEnabled,
           ) : previewStatus !== "active" ? (
             <span className="movement-stage-icon"><Camera size={38} strokeWidth={1.8} /></span>
           ) : null}
-          {!complete ? <span className="movement-preview-state">{previewStatus === "active" ? "LIVE · shoulder" : previewStatus === "unavailable" ? "Preview unavailable" : "Preparing preview"}</span> : null}
+          {!complete ? <span className="movement-preview-state">{previewStatus === "active" ? exercise.previewLabel : previewStatus === "unavailable" ? "Preview unavailable" : "Preparing preview"}</span> : null}
           {!complete ? <span className="movement-privacy">Live view only · no video or audio saved</span> : null}
         </div>
 
         <div className="movement-progress-copy">
           <div className="movement-count" role="status" aria-live="polite"><strong>{snapshot.repCount}</strong><span>/ {snapshot.targetReps}</span></div>
-          <div className="movement-depth-progress" role="progressbar" aria-label="Squat depth" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(snapshot.depthProgress * 100)}>
-            <span style={{ width: `${Math.round(snapshot.depthProgress * 100)}%` }} />
+          <div className="movement-depth-progress" role="progressbar" aria-label={exercise.progressLabel} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(snapshot.progress * 100)}>
+            <span style={{ width: `${Math.round(snapshot.progress * 100)}%` }} />
           </div>
-          <span className="movement-depth-label">{complete ? "Complete" : `${Math.round(snapshot.depthProgress * 100)}% to target`}</span>
+          <span className="movement-depth-label">{complete ? "Complete" : `${Math.round(snapshot.progress * 100)}% to target`}</span>
           <span className="movement-guidance">{snapshot.guidance}</span>
           {snapshot.error ? <span className="movement-error">{snapshot.error}</span> : null}
         </div>

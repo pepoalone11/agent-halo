@@ -29,7 +29,7 @@ The current app now spans session presence, a floating Completion Pet, Focus too
 | **Sessions** | Workspace-grouped Letta conversations, truthful activity state, sticky completion history, detail, clear/dismiss, exact Herdr-pane focus when available, and Ghostty fallback |
 | **Completion Pet** | A separate non-focus-stealing Pet window for natural Focus completion, with Start break, Later, Close, and optional Movement Break actions |
 | **Focus** | Independent Pomodoro and Stopwatch tools that can run together; Pomodoro keeps custom phases and silent alerts, while Stopwatch adds reload-safe elapsed tracking and clearable local history |
-| **Movement Break** | Explicit 10-squat challenge using one local camera stream, a white shoulder line, fixed green target, live progress, and bundled offline pose inference |
+| **Movement Break** | Explicit Squat or Overhead Reach challenge using one local camera stream, exercise-specific tracking, live progress, and bundled offline pose inference |
 | **Usage** | Local quota/token views for known AI providers, including truthful unavailable/offline diagnostics |
 | **Runtime** | Read-only Letta host/subprocess CPU and memory pressure, with no process controls |
 | **Services** | Read-only local TCP/HTTP listeners grouped into Detected web frontends, Letta services, and Other listeners, with safe response titles and browser-open actions |
@@ -43,7 +43,7 @@ The current app now spans session presence, a floating Completion Pet, Focus too
 - Tracks local AI usage and read-only Letta/subprocess pressure without hiding known providers or exposing process controls.
 - Lists locally listening TCP services in a dedicated Services tab, separates strongly evidenced browser apps first, exact Letta-started non-web services second, and other listeners last; shows bounded response/cwd context plus trusted Letta/Herdr ancestry when available, reserves the green service dot for web evidence only, and opens detected HTTP endpoints without controlling the process.
 - Runs independent local Pomodoro and Stopwatch tools together, with persisted deadlines/elapsed time, collapsed status, silent Pomodoro notifications, clearable Stopwatch history, and a separate Completion Pet.
-- Offers an opt-in 10-squat Movement Break only after an explicit Pet action; preview and shoulder tracking use one local stream and bundled offline assets.
+- Offers opt-in Squat and Overhead Reach Movement Breaks only after a specific exercise click; preview and pose tracking share one local stream and bundled offline assets.
 - Keeps the display awake only while genuine visible Letta work is active.
 - Remembers the selected display for the notch and Pet, with safe Primary fallback when that display disconnects.
 - Installs, verifies, and diagnoses the local Letta Code mod without rewriting global Letta settings.
@@ -276,7 +276,7 @@ scripts/install-desktop.mjs     Desktop build/install helper
 
 Agent Halo should feel like a quiet companion, not a generic AI dashboard. The interface follows a dark hardware-notch direction with compact workspace rows, hairline dividers, restrained orange/green state accents, and small Pet activity. Setup exposes only Halo Bot and Haloform as one global persisted Pet choice. Halo Bot is the fresh default and adds ten separately persisted user-selectable loadouts over one shared layered pixel rig; Haloform uses an approved provider-derived native96 CRT master with explicit semantic masks. Retired stored Pet IDs normalize to Halo Bot, and neither identity nor color is randomized per project. A separate persisted Letta-state motion map may redirect body presentation (for example, Working → Idle motion) without changing truthful status, Signal V4, or Keep display awake semantics.
 
-Natural Focus completion can summon a separate floating Pet without opening or focusing the full notch panel. The Pet owns presentation only; the main renderer remains the sole Pomodoro owner. If Movement Break is enabled, its camera surface follows the same compact black/green language with a white shoulder line, fixed green target, and short success celebration. See [`docs/pet.md`](docs/pet.md) and [`docs/movement-break.md`](docs/movement-break.md).
+Natural Focus completion can summon a separate floating Pet without opening or focusing the full notch panel. The Pet owns presentation only; the main renderer remains the sole Pomodoro owner. If Movement Break is enabled, the Pet first offers Squat and Overhead Reach choices without opening the camera. A specific exercise click starts the shared compact black/green camera surface with exercise-specific white/green tracking guides and a short success celebration. See [`docs/pet.md`](docs/pet.md) and [`docs/movement-break.md`](docs/movement-break.md).
 
 Design references and parity notes live in [`docs/notchcode-parity.md`](docs/notchcode-parity.md).
 
@@ -302,7 +302,7 @@ Agent Halo is built around local state:
 - Provider usage reads local credentials, CLIs, language servers, or local history where available.
 - The bridge does not store raw tool output by default.
 - Text preview capture is opt-in through local config and disabled by default.
-- Movement Break camera capture starts only after an explicit 10-squat action. One ephemeral stream feeds both the mirrored preview and bundled local shoulder tracker; frames are never recorded, exported, or uploaded.
+- Movement Break camera capture starts only after an explicit Squat or Overhead Reach action. One ephemeral stream feeds both the mirrored preview and bundled local pose tracker; frames are never recorded, exported, or uploaded.
 - The bundled MediaPipe WASM/model payload is loaded only for Movement Break and has no runtime CDN dependency.
 
 ## Known boundaries

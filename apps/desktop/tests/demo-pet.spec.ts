@@ -231,7 +231,8 @@ test("Movement Break is opt-in with truthful local camera copy", async ({ page }
   const toggle = row.getByRole("switch", { name: "Enable movement break" });
   await expect(toggle).toHaveAttribute("aria-checked", "false");
   await toggle.click();
-  await expect(row).toContainText("10 squats · camera only after you choose it");
+  await expect(row).toContainText("Squats or reaches · choose after Focus");
+  await expect(page.getByRole("note")).toContainText("Camera opens only after a specific exercise is clicked.");
   await expect(page.getByRole("note")).toContainText("Pose analysis stays on this Mac; no video or audio is saved.");
   await expect.poll(() => page.evaluate(() => window.localStorage.getItem("agent-halo.movement-break-enabled"))).toBe("true");
 });

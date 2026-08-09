@@ -265,6 +265,50 @@
   bottom: 4px;
 }
 
+.completion-pet-exercise-option {
+  top: 58px;
+  width: 64px;
+  height: 64px;
+}
+
+.completion-pet-exercise-option[data-exercise="squat"] {
+  --liquid-x: 64px;
+  --liquid-y: 30px;
+  --liquid-x-mid: 34px;
+  --liquid-y-mid: 16px;
+  --liquid-x-over: -4px;
+  --liquid-y-over: -2px;
+  --liquid-delay: 120ms;
+  left: 8px;
+}
+
+.completion-pet-exercise-option[data-exercise="overhead-reach"] {
+  --liquid-x: -64px;
+  --liquid-y: 30px;
+  --liquid-x-mid: -34px;
+  --liquid-y-mid: 16px;
+  --liquid-x-over: 4px;
+  --liquid-y-over: -2px;
+  --liquid-delay: 180ms;
+  right: 8px;
+}
+
+.completion-pet-exercise-back {
+  --liquid-y: -50px;
+  --liquid-y-mid: -26px;
+  --liquid-y-over: 4px;
+  --liquid-delay: 240ms;
+  bottom: 6px;
+  left: 106px;
+  width: 48px;
+  height: 48px;
+}
+
+.completion-pet-root[data-exercise-picker="true"] .completion-pet-context {
+  top: 6px;
+  bottom: auto;
+}
+
 .completion-pet-later {
   --liquid-x: 92px;
   --liquid-y: -8px;

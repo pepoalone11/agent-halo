@@ -200,7 +200,7 @@ test("global Haloform completion exposes the prepared break actions", async ({ p
   await expect(context).toHaveCSS("background-color", "rgb(0, 0, 0)");
   await expect(dialog.getByRole("button", { name: "Not now" })).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Hide completion pet" })).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Start 10 Squats movement break" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Choose Movement Break exercise" })).toHaveCount(0);
   await page.keyboard.press("Tab");
   await expect(dialog.getByRole("button", { name: "Not now" })).toBeFocused();
   await expect(dialog.getByRole("button", { name: "Not now" })).toHaveCSS("outline-width", "2px");
@@ -236,7 +236,7 @@ test("global Haloform preview uses the generic dismiss-only surface", async ({ p
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("button", { name: /Start .*break/ })).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Not now" })).toHaveCount(0);
-  await expect(dialog.getByRole("button", { name: "Start 10 Squats movement break" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Choose Movement Break exercise" })).toHaveCount(0);
   const close = dialog.getByRole("button", { name: "Hide completion pet" });
   await expect(close).toBeFocused();
   await expect(page.locator(".completion-pet-context")).toHaveText("Pet preview");
@@ -276,15 +276,33 @@ test("Haloform keeps square generic geometry at 1× and 1.5×", async ({ page })
   }
 });
 
-test("Movement Break starts camera tracking only after the explicit 10 Squats action", async ({ page }) => {
-  await page.setViewportSize({ width: 600, height: 420 });
+test("Movement Break opens a two-exercise picker before any explicit camera action", async ({ page }) => {
+  await page.setViewportSize({ width: 260, height: 230 });
   await page.goto("/?surface=pet&demoPet=1");
   await expect(page.getByRole("dialog", { name: "10 Squats movement break" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "10 Overhead Reaches movement break" })).toHaveCount(0);
   await page.getByRole("button", { name: "Focus complete. Open break actions" }).click();
   await expect(page.getByRole("button", { name: "Start Short break" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Not now" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Hide completion pet" })).toBeVisible();
-  await page.getByRole("button", { name: "Start 10 Squats movement break" }).click();
+  await page.getByRole("button", { name: "Choose Movement Break exercise" }).click();
+  const picker = page.getByRole("dialog", { name: "Choose movement break exercise" });
+  const squats = picker.getByRole("button", { name: "Start 10 Squats movement break" });
+  const reaches = picker.getByRole("button", { name: "Start 10 Overhead Reaches movement break" });
+  await expect(squats).toBeFocused();
+  await expect(squats).toContainText("Lower body");
+  await expect(reaches).toContainText("Upper body");
+  const [contextBox, squatBox] = await Promise.all([
+    picker.getByText("Pick one · camera starts next").boundingBox(),
+    squats.boundingBox(),
+  ]);
+  expect(contextBox).not.toBeNull();
+  expect(squatBox).not.toBeNull();
+  expect(contextBox!.height).toBeLessThan(30);
+  expect(contextBox!.y + contextBox!.height).toBeLessThan(squatBox!.y);
+  await expect(page.getByRole("dialog", { name: /movement break$/ })).toHaveCount(0);
+  await page.setViewportSize({ width: 600, height: 420 });
+  await squats.click();
   const challenge = page.getByRole("dialog", { name: "10 Squats movement break" });
   await expect(challenge).toBeVisible();
   await expect(challenge.getByRole("button", { name: "Close movement break" })).toBeFocused();
@@ -292,6 +310,50 @@ test("Movement Break starts camera tracking only after the explicit 10 Squats ac
   await expect(challenge.getByRole("progressbar", { name: "Squat depth" })).toHaveAttribute("aria-valuenow", "0");
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Start 10 Squats movement break" })).toBeFocused();
+  await page.getByRole("button", { name: "Back to break actions" }).click();
+  await expect(page.getByRole("button", { name: "Choose Movement Break exercise" })).toBeFocused();
+});
+
+test("Overhead Reach starts the shared camera only after its specific exercise click", async ({ page }) => {
+  await page.addInitScript(() => {
+    const controlled = window as typeof window & { __reachCameraRequests: number; __reachPreviewStops: number; __TAURI_INTERNALS__: unknown };
+    controlled.__reachCameraRequests = 0;
+    controlled.__reachPreviewStops = 0;
+    const canvas = document.createElement("canvas");
+    canvas.width = 640;
+    canvas.height = 480;
+    const context = canvas.getContext("2d")!;
+    context.fillStyle = "#57545f";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    const stream = canvas.captureStream(15);
+    const track = stream.getVideoTracks()[0]!;
+    const originalStop = track.stop.bind(track);
+    track.stop = () => { controlled.__reachPreviewStops += 1; originalStop(); };
+    Object.defineProperty(navigator, "mediaDevices", {
+      value: { getUserMedia: async () => { controlled.__reachCameraRequests += 1; return stream; } },
+      configurable: true,
+    });
+    controlled.__TAURI_INTERNALS__ = {
+      invoke: async (command: string) => {
+        if (command === "completion_pet_state") return { summon: { schemaVersion: 1, id: "reach-focus", pet: "haloform", petSize: "large", preview: false, movementBreakEnabled: true, nextPhase: "short-break", title: "Focus complete", actionLabel: "Start Short break" } };
+        return null;
+      },
+    };
+  });
+  await page.setViewportSize({ width: 600, height: 420 });
+  await page.goto("/?surface=pet&demoPose=1");
+  await page.getByRole("button", { name: "Focus complete. Open break actions" }).click();
+  await page.getByRole("button", { name: "Choose Movement Break exercise" }).click();
+  expect(await page.evaluate(() => (window as typeof window & { __reachCameraRequests: number }).__reachCameraRequests)).toBe(0);
+  await page.getByRole("button", { name: "Start 10 Overhead Reaches movement break" }).click();
+  const challenge = page.getByRole("dialog", { name: "10 Overhead Reaches movement break" });
+  await expect(challenge).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __reachCameraRequests: number }).__reachCameraRequests)).toBe(1);
+  await expect(challenge.getByRole("progressbar", { name: "Reach height" })).toHaveAttribute("aria-valuenow", "72");
+  await expect(page.locator('.movement-tracking-line[data-label="HANDS"]')).toHaveAttribute("style", /^top: 28/);
+  await expect(page.locator('.movement-target-line[data-label="REACH ABOVE"]')).toHaveAttribute("style", "top: 36%;");
+  await challenge.getByRole("button", { name: "Close movement break" }).click();
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __reachPreviewStops: number }).__reachPreviewStops)).toBe(1);
 });
 
 test("native Movement Break queues one completion result without mounting Pomodoro ownership", async ({ page }) => {
@@ -312,9 +374,11 @@ test("native Movement Break queues one completion result without mounting Pomodo
   await page.goto("/?surface=pet&demoCameraOff=1&demoMovementCompleted=1");
   await expect.poll(() => page.evaluate(() => (window as typeof window & { __movementNativeCalls: Array<{ command: string }> }).__movementNativeCalls.some((call) => call.command === "completion_pet_state"))).toBe(true);
   await page.getByRole("button", { name: "Focus complete. Open break actions" }).click();
-  await page.getByRole("button", { name: "Start 10 Squats movement break" }).click();
+  await page.getByRole("button", { name: "Choose Movement Break exercise" }).click();
+  await page.getByRole("button", { name: "Start 10 Overhead Reaches movement break" }).click();
+  await expect(page.getByRole("dialog", { name: "10 Overhead Reaches movement break" })).toBeVisible();
   await expect(page.getByRole("img", { name: "Celebration" })).toBeVisible();
-  await expect(page.locator(".movement-shoulder-line, .movement-target-line")).toHaveCount(0);
+  await expect(page.locator(".movement-tracking-line, .movement-target-line")).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => (window as typeof window & { __movementNativeCalls: Array<{ command: string; args?: Record<string, unknown> }> }).__movementNativeCalls.some((call) => call.command === "set_completion_pet_movement" && call.args?.active === true && call.args?.summonId === "movement-focus"))).toBe(true);
   await expect.poll(() => page.evaluate(() => (window as typeof window & { __movementNativeCalls: Array<{ command: string; args?: Record<string, unknown> }> }).__movementNativeCalls.filter((call) => call.command === "submit_completion_pet_action" && call.args?.action === "movement-complete").length)).toBe(1);
   expect(await page.evaluate(() => window.localStorage.getItem("agent-halo.pomodoro"))).toBeNull();
@@ -337,6 +401,7 @@ test("Movement attempt remains cancellable and clears its native attempt token",
   await page.setViewportSize({ width: 600, height: 420 });
   await page.goto("/?surface=pet&demoCameraOff=1");
   await page.getByRole("button", { name: "Focus complete. Open break actions" }).click();
+  await page.getByRole("button", { name: "Choose Movement Break exercise" }).click();
   await page.getByRole("button", { name: "Start 10 Squats movement break" }).click();
   const close = page.getByRole("button", { name: "Close movement break" });
   await expect(close).toBeEnabled();
@@ -371,13 +436,14 @@ test("authorized Movement Break shows a live preview with fixed target and stops
   await page.setViewportSize({ width: 600, height: 420 });
   await page.goto("/?surface=pet&demoPose=1");
   await page.getByRole("button", { name: "Focus complete. Open break actions" }).click();
+  await page.getByRole("button", { name: "Choose Movement Break exercise" }).click();
   await page.getByRole("button", { name: "Start 10 Squats movement break" }).click();
   await expect(page.locator('video[aria-label="Live mirrored Movement Break camera"]')).toBeVisible();
-  await expect(page.locator(".movement-shoulder-line")).toHaveCount(1);
+  await expect(page.locator(".movement-tracking-line")).toHaveCount(1);
   await expect(page.locator(".movement-target-line")).toHaveCount(1);
   await expect(page.locator(".movement-target-line")).toHaveAttribute("style", "top: 86%;");
-  await page.locator(".movement-shoulder-line").evaluate((line) => { line.style.top = "70%"; });
-  await expect(page.locator(".movement-shoulder-line")).toHaveAttribute("style", "top: 70%;");
+  await page.locator(".movement-tracking-line").evaluate((line) => { line.style.top = "70%"; });
+  await expect(page.locator(".movement-tracking-line")).toHaveAttribute("style", "top: 70%;");
   await expect(page.locator(".movement-target-line")).toHaveAttribute("style", "top: 86%;");
   await expect(page.getByText("48% to target")).toBeVisible();
   await page.getByRole("button", { name: "Close movement break" }).click();
@@ -387,16 +453,32 @@ test("authorized Movement Break shows a live preview with fixed target and stops
 test("shoulder-line counter counts white-to-green then standing traversal", async ({ page }) => {
   await page.goto("/?demo=1&demoScenario=idle");
   const result = await page.evaluate(async () => {
-    const { ShoulderSquatCounter } = await import("/src/features/movement/model.ts");
+    const { ShoulderSquatCounter } = await import("/src/features/movement/squat.ts");
     const counter = new ShoulderSquatCounter();
     const standing = { shoulderY: 0.3, confidence: 0.95 };
     const bottom = { shoulderY: 0.86, confidence: 0.95 };
     const targetBeforeCalibration = counter.targetLineY;
     const events = [0, 80, 160, 240, 320, 400, 480].map((time) => counter.update(time, standing));
     events.push(counter.update(600, bottom), counter.update(800, bottom), counter.update(1_000, standing), counter.update(1_200, standing));
-    return { count: counter.count, final: events.at(-1)?.type, targetBeforeCalibration, targetAfterMovement: counter.targetLineY };
+    return { count: counter.count, final: events.at(-1), targetBeforeCalibration, targetAfterMovement: counter.targetLineY };
   });
   expect(result).toEqual({ count: 1, final: "rep", targetBeforeCalibration: 0.86, targetAfterMovement: 0.86 });
+});
+
+test("Overhead Reach counts only a complete both-hands down-up-down cycle", async ({ page }) => {
+  await page.goto("/?demo=1&demoScenario=idle");
+  const result = await page.evaluate(async () => {
+    const { OverheadReachCounter } = await import("/src/features/movement/overhead-reach.ts");
+    const counter = new OverheadReachCounter();
+    const down = { shoulderY: 0.44, wristY: 0.61, leftRaiseDistance: -0.17, rightRaiseDistance: -0.17, confidence: 0.96 };
+    const oneHandOnly = { shoulderY: 0.44, wristY: 0.4, leftRaiseDistance: 0.16, rightRaiseDistance: -0.08, confidence: 0.96 };
+    const overhead = { shoulderY: 0.44, wristY: 0.27, leftRaiseDistance: 0.17, rightRaiseDistance: 0.17, confidence: 0.96 };
+    const events = [counter.update(0, down), counter.update(200, oneHandOnly), counter.update(400, oneHandOnly)];
+    const countAfterOneHand = counter.count;
+    events.push(counter.update(600, overhead), counter.update(800, overhead), counter.update(1_000, down), counter.update(1_200, down));
+    return { countAfterOneHand, count: counter.count, final: events.at(-1), progress: counter.progress };
+  });
+  expect(result).toEqual({ countAfterOneHand: 0, count: 1, final: "rep", progress: 0 });
 });
 
 test("bundled pose runtime initializes without a remote model request", async ({ page }) => {

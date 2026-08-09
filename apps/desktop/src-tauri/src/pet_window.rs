@@ -299,6 +299,26 @@ fn valid_pet_position(position: &PetPositionPreference) -> bool {
         && (0.0..=1.0).contains(&position.y_ratio)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PetDisplayTarget {
+    Selected,
+    Saved,
+    Primary,
+}
+
+fn pet_display_target(
+    saved: Option<&PetPositionPreference>,
+    selected: Option<&crate::DisplayPreference>,
+) -> PetDisplayTarget {
+    if selected.is_some() {
+        PetDisplayTarget::Selected
+    } else if saved.is_some() {
+        PetDisplayTarget::Saved
+    } else {
+        PetDisplayTarget::Primary
+    }
+}
+
 fn write_pet_position(app: &AppHandle, position: &PetPositionPreference) -> Result<(), String> {
     let path = pet_position_path(app)?;
     let parent = path
@@ -338,20 +358,26 @@ mod platform {
         preference: Option<&PetPositionPreference>,
         selected_display: Option<&crate::DisplayPreference>,
     ) -> Option<objc2::rc::Retained<NSScreen>> {
-        if let Some(preference) = preference {
-            if let Some(screen) = screens.iter().find(|screen| {
-                appkit_display_id(screen).as_deref() == Some(preference.display_id.as_str())
-            }) {
-                return Some(screen);
+        match pet_display_target(preference, selected_display) {
+            PetDisplayTarget::Selected => resolve_appkit_screen(screens, selected_display).0,
+            PetDisplayTarget::Saved => {
+                let preference = preference?;
+                if let Some(screen) = screens.iter().find(|screen| {
+                    appkit_display_id(screen).as_deref() == Some(preference.display_id.as_str())
+                }) {
+                    return Some(screen);
+                }
+                if let Some(screen) = screens.iter().find(|screen| {
+                    appkit_display_option(screen, None).is_some_and(|display| {
+                        display.fingerprint == preference.display_fingerprint
+                    })
+                }) {
+                    return Some(screen);
+                }
+                resolve_appkit_screen(screens, None).0
             }
-            if let Some(screen) = screens.iter().find(|screen| {
-                appkit_display_option(screen, None)
-                    .is_some_and(|display| display.fingerprint == preference.display_fingerprint)
-            }) {
-                return Some(screen);
-            }
+            PetDisplayTarget::Primary => resolve_appkit_screen(screens, None).0,
         }
-        resolve_appkit_screen(screens, selected_display).0
     }
 
     fn screen_for_frame(
@@ -1099,6 +1125,31 @@ mod tests {
             schema_version: 3,
             ..valid
         }));
+    }
+
+    #[test]
+    fn selected_display_outranks_the_saved_pet_display() {
+        let saved = PetPositionPreference {
+            schema_version: 2,
+            display_id: "external".to_string(),
+            display_fingerprint: "external-fingerprint".to_string(),
+            x_ratio: 0.75,
+            y_ratio: 0.25,
+        };
+        let selected = crate::DisplayPreference {
+            id: "built-in".to_string(),
+            fingerprint: "built-in-fingerprint".to_string(),
+            name: "Built-in display".to_string(),
+        };
+        assert_eq!(
+            pet_display_target(Some(&saved), Some(&selected)),
+            PetDisplayTarget::Selected
+        );
+        assert_eq!(
+            pet_display_target(Some(&saved), None),
+            PetDisplayTarget::Saved
+        );
+        assert_eq!(pet_display_target(None, None), PetDisplayTarget::Primary);
     }
 
     #[test]
