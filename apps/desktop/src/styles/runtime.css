@@ -60,31 +60,115 @@
 
 .runtime-service-row {
   display: grid;
-  gap: 3px;
+  gap: 0;
   min-width: 0;
   padding: 7px 2px;
   border-bottom: 1px solid var(--hair);
 }
 
-.runtime-service-meta {
+.runtime-service-disclosure {
+  display: flex;
+  align-items: center;
   min-width: 0;
-  flex-wrap: wrap;
-}
-
-.runtime-service-meta > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.runtime-service-owner {
-  box-sizing: border-box;
-  flex-basis: 100%;
-  min-width: 0;
-  max-width: none;
-  padding-left: 14px;
-  color: var(--text-2);
+  flex: 1;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
   text-align: left;
+  cursor: pointer;
+}
+
+.runtime-service-disclosure:focus-visible {
+  border-radius: 3px;
+  outline: 1px solid var(--text-2);
+  outline-offset: 3px;
+}
+
+.runtime-service-chevron {
+  flex: 0 0 auto;
+  color: var(--text-3);
+}
+
+.runtime-service-row[data-expanded="true"] .runtime-service-chevron {
+  transform: rotate(90deg);
+}
+
+.runtime-service-details {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 7px 9px 0 14px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hair);
+}
+
+.runtime-service-detail-list {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  margin: 0;
+}
+
+.runtime-service-detail-list > div {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+.runtime-service-detail-list dt,
+.runtime-service-detail-list dd {
+  min-width: 0;
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.runtime-service-detail-list dt {
+  color: var(--text-3);
+}
+
+.runtime-service-detail-list dd {
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.runtime-service-control,
+.runtime-service-confirm {
+  display: grid;
+  gap: 6px;
+}
+
+.runtime-service-confirm p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.runtime-service-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.runtime-service-control-status,
+.runtime-service-control-error {
+  min-width: 0;
+  flex: 1;
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+.runtime-service-control-error {
+  color: var(--danger);
 }
 
 .runtime-service-kind {
@@ -295,6 +379,10 @@
   .runtime-reason {
     align-items: flex-start;
     flex-wrap: wrap;
+  }
+
+  .runtime-service-detail-list > div {
+    grid-template-columns: 72px minmax(0, 1fr);
   }
 
 }

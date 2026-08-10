@@ -10,7 +10,7 @@ use std::{
 };
 
 const BRIDGE_HOST: &str = "127.0.0.1";
-const BRIDGE_PORT: u16 = 47_621;
+pub(crate) const BRIDGE_PORT: u16 = 47_621;
 const BRIDGE_PROBE_TIMEOUT: Duration = Duration::from_millis(350);
 const BRIDGE_SUPERVISOR_INTERVAL: Duration = Duration::from_secs(1);
 const OWNED_BRIDGE_FAILURE_LIMIT: u8 = 3;

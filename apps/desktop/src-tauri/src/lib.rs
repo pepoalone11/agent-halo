@@ -38,7 +38,7 @@ mod runtime_usage;
 mod standalone_bridge;
 
 use keep_awake::KeepAwakeState;
-use local_services::local_services;
+use local_services::{control_local_service, local_services, LocalServicesControlState};
 use notification::{
     cancel_pomodoro_notification, notification_permission_state, request_notification_permission,
     schedule_pomodoro_notification, PomodoroNotificationState,
@@ -5473,6 +5473,7 @@ pub fn run() {
             install_agent_halo_agy_hooks,
             agent_halo_agy_hook_status,
             hide_completion_pet,
+            control_local_service,
             local_services,
             notch_metrics,
             notification_permission_state,
@@ -5497,6 +5498,7 @@ pub fn run() {
         .manage(PomodoroNotificationState::default())
         .manage(CompletionPetWindowState::default())
         .manage(RuntimeUsageState::default())
+        .manage(LocalServicesControlState::default())
         .manage(StandaloneBridgeState::default())
         .invoke_handler(move |invoke| {
             let from_pet = invoke.message.webview_ref().label() == "pet";

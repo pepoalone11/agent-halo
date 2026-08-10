@@ -69,6 +69,8 @@ The `stopwatch-history-v1` revision raises the primary CSS gzip ceiling to 12,20
 
 The `movement-exercises-v2` revision raises the primary CSS gzip ceiling from 12,200 to 12,250 bytes while keeping JavaScript gzip at 101,000 bytes. The 50-byte allowance covers the camera-free two-exercise Pet chooser and exercise-specific progress labels for Squat and Overhead Reach; the shared camera, bundled MediaPipe runtime/model ceiling, native attempt token, and Pomodoro action contract remain unchanged. The candidate measures 12,206 bytes CSS gzip and 100,678 bytes JavaScript gzip.
 
+The `services-process-control-v1` revision raises the primary CSS gzip ceiling from 12,250 to 12,500 bytes and JavaScript gzip from 101,000 to 101,750 bytes. The bounded allowance covers one-at-a-time service disclosures, native process detail presentation, accessible Stop/Force kill confirmations and result states, plus process-identity-aware renderer coordination. The measured candidate is 12,402 bytes CSS gzip and 101,658 bytes JavaScript gzip. PID/start/UID/endpoint revalidation, signaling, protected-process policy, and capability expiry remain native and do not enter the web bundle; command arguments and environment values remain excluded.
+
 The low-risk bridge refactor's three-run median measured event duration `603.06ms → 574.18ms` (−4.79%) and throughput `33,164 → 34,832 events/s` (+5.03%) for 20,000 deterministic events. Startup stayed effectively flat; synchronous NDJSON durability and event ordering remain unchanged.
 
 ## Commands

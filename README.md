@@ -20,7 +20,7 @@ Agent Halo is a native desktop companion for AI coding agents, currently support
 
 It is designed for people who keep multiple AI coding sessions, subagents, and project terminals open at once. Instead of scraping terminal text or asking you to hunt through panes, Agent Halo keeps recent workspaces visible, shows what each conversation is doing, and adds local focus tools without trying to become a hosted dashboard or process manager.
 
-The current app now spans session presence, a floating Completion Pet, Focus tools, an optional camera-based Movement Break, local provider usage, read-only process pressure and local services, native display placement, and setup/install controls.
+The current app now spans session presence, a floating Completion Pet, Focus tools, an optional camera-based Movement Break, local provider usage, read-only process pressure, local service inspection and guarded current-user service controls, native display placement, and setup/install controls.
 
 ## Product surfaces
 
@@ -32,7 +32,7 @@ The current app now spans session presence, a floating Completion Pet, Focus too
 | **Movement Break** | Explicit Squat or Overhead Reach challenge using one local camera stream, exercise-specific tracking, live progress, and bundled offline pose inference |
 | **Usage** | Local quota/token views for known AI providers, including truthful unavailable/offline diagnostics |
 | **Runtime** | Read-only Letta host/subprocess CPU and memory pressure, with no process controls |
-| **Services** | Read-only local TCP/HTTP listeners grouped into Detected web frontends, Letta services, and Other listeners, with safe response titles and browser-open actions |
+| **Services** | Local TCP/HTTP listeners grouped into Detected web frontends, Letta services, and Other listeners, with expandable process detail, browser-open actions, and guarded Stop → Force kill controls for eligible current-user listener processes |
 | **Setup** | Connection/mod install, global Pet choice and size, Completion Pet/Movement settings, keep-awake, and target-display selection |
 
 ## What Agent Halo does
@@ -40,8 +40,8 @@ The current app now spans session presence, a floating Completion Pet, Focus too
 - Projects live Letta Code lifecycle, turn, model, tool, compaction, completion, and needs-input activity into a compact notch surface.
 - Keeps recent conversations in workspace groups, including distinct subagent/default lanes, sticky completed rows, per-session context, and guarded clear/dismiss behavior.
 - Focuses the exact Herdr pane when trusted runtime identity is present, then falls back to native Ghostty cwd/title/session matching.
-- Tracks local AI usage and read-only Letta/subprocess pressure without hiding known providers or exposing process controls.
-- Lists locally listening TCP services in a dedicated Services tab, separates strongly evidenced browser apps first, exact Letta-started non-web services second, and other listeners last; shows bounded response/cwd context plus trusted Letta/Herdr ancestry when available, reserves the green service dot for web evidence only, and opens detected HTTP endpoints without controlling the process.
+- Tracks local AI usage and read-only Letta/subprocess pressure without hiding known providers or adding Runtime process controls.
+- Lists locally listening TCP services in a dedicated Services tab, separates strongly evidenced browser apps first, exact Letta-started non-web services second, and other listeners last; expands into bounded process/start/memory/parent/executable/cwd context plus trusted Letta/Herdr ancestry, reserves the green service dot for web evidence only, opens detected HTTP endpoints, and can stop an eligible current-user listener only after exact native identity revalidation and confirmation.
 - Runs independent local Pomodoro and Stopwatch tools together, with persisted deadlines/elapsed time, collapsed status, silent Pomodoro notifications, clearable Stopwatch history, and a separate Completion Pet.
 - Offers opt-in Squat and Overhead Reach Movement Breaks only after a specific exercise click; preview and pose tracking share one local stream and bundled offline assets.
 - Keeps the display awake only while genuine visible Letta work is active.
@@ -54,7 +54,7 @@ Agent Halo intentionally stays local. It uses the public Letta Code mod surface 
 
 Agent Halo is an actively used personal macOS app, not a public packaged release. The bridge, native overlay, multi-session model, Completion Pet, Focus/Movement flow, Usage, Runtime, Services, display placement, keep-awake, and setup/install paths are implemented and covered by browser/native regression checks. The local-service lane additionally has parser/native compile coverage, browser demo coverage, and live macOS evidence that structured `lsof` sees Bun/Python listeners while bounded HTTP evidence distinguishes a Bun browser app from Python directory listings and AirTunes. Known local projects may opt into the bounded explicit registry documented in `docs/runtime-monitor.md`. The installed app remains the final visual/product check for the real machine state.
 
-The project still moves quickly. Session/process controls remain intentionally conservative: Agent Halo will not invent an “end session” or kill-process feature before Letta exposes a stable scoped API.
+The project still moves quickly. Session controls remain intentionally conservative: Agent Halo does not invent an “end session” capability before Letta exposes a stable scoped API. Services process control is a separate desktop-native boundary limited to exact current-user listener identities; it does not terminate a Letta conversation or enable bridge `sessionActions.endSession`.
 
 ## Architecture
 

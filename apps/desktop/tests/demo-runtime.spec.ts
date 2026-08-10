@@ -46,14 +46,18 @@ test("Runtime and Services use separate canonical top-level tabs", async ({ page
   const morrowService = servicesPanel.locator('.runtime-service-row[data-web-frontend="true"]').filter({ hasText: "MORROW — ONE" });
   const pythonService = servicesPanel.locator('.runtime-service-row[data-web-frontend="false"]').filter({ hasText: "Python" });
   await expect(haabizService).toContainText("5173 · node");
+  await expect(servicesPanel.getByRole("button", { name: "Stop process…" })).toHaveCount(0);
+  await servicesPanel.getByRole("button", { name: "Expand Haabiz UI service details on port 5173" }).click();
   await expect(haabizService).toContainText("catalog");
   await expect(haabizService).toContainText("Started by Letta · admin-template · wH:p1");
+  await expect(haabizService).toContainText("Memory");
+  await expect(haabizService).toContainText("Parent");
+  await expect(haabizService).toContainText("Working directory");
+  await expect(haabizService.getByRole("button", { name: "Stop process…" })).toBeVisible();
   await expect(morrowService).toContainText("4173 · bun");
-  await expect(morrowService).toContainText("Started by Letta · mahirocoko · wB:pH");
   await expect(pythonService).toContainText("8000");
-  await expect(pythonService).toContainText("Started by Letta · mahirocoko · wB:pH");
   await expect(servicesPanel.locator(".runtime-service-open")).toHaveCount(4);
-  await expect(page.getByText("Read-only · web evidence first, then exact Letta ancestry · no service controls")).toBeVisible();
+  await expect(page.getByText("Web evidence first · exact Letta ancestry · Stop requires confirmation")).toBeVisible();
   const [servicesBox, openBox] = await Promise.all([
     servicesPanel.boundingBox(),
     servicesPanel.locator(".runtime-service-open").first().boundingBox(),
@@ -108,6 +112,90 @@ test("detected HTTP services expose a keyboard-reachable browser action", async 
   const openPython = page.getByRole("button", { name: "Open Python on port 8000" });
   await openPython.focus();
   await expect(openPython).toBeFocused();
+});
+
+test("Services uses guarded Stop then Force kill controls for current-user listeners", async ({ page }) => {
+  await page.goto("/?demo=1&demoScenario=multi");
+  await page.getByRole("tab", { name: "Services", exact: true }).click();
+  const servicesPanel = page.getByRole("tabpanel", { name: "Services" });
+  const disclosure = servicesPanel.getByRole("button", { name: "Expand Haabiz UI service details on port 5173" });
+  await disclosure.click();
+
+  const stop = servicesPanel.getByRole("button", { name: "Stop process…" });
+  await stop.click();
+  const cancelStop = servicesPanel.getByRole("button", { name: "Cancel" });
+  await expect(cancelStop).toBeFocused();
+  await expect(servicesPanel.getByText("This ends every listener owned by this process.")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(stop).toBeVisible();
+  await expect(servicesPanel).toBeVisible();
+
+  await stop.click();
+  await servicesPanel.getByRole("button", { name: "Stop process", exact: true }).click();
+  await expect(servicesPanel.getByText("Process did not stop.")).toBeVisible();
+  const force = servicesPanel.getByRole("button", { name: "Force kill…" });
+  await force.click();
+  const cancelForce = servicesPanel.getByRole("button", { name: "Cancel" });
+  await expect(cancelForce).toBeFocused();
+  await expect(servicesPanel.getByText("Unsaved work may be lost.")).toBeVisible();
+  await servicesPanel.getByRole("button", { name: "Force kill", exact: true }).click();
+  await expect(servicesPanel.locator(".runtime-service-row")).toHaveCount(5);
+  await expect(servicesPanel.getByText("Haabiz UI")).toHaveCount(0);
+});
+
+test("protected Services disclose details without process controls", async ({ page }) => {
+  await page.goto("/?demo=1&demoScenario=multi");
+  await page.getByRole("tab", { name: "Services", exact: true }).click();
+  const servicesPanel = page.getByRole("tabpanel", { name: "Services" });
+  await servicesPanel.getByRole("button", { name: "Expand bun service details on port 47621" }).click();
+  await expect(servicesPanel.getByText("Agent Halo bridge is protected")).toBeVisible();
+  await expect(servicesPanel.getByRole("button", { name: "Stop process…" })).toHaveCount(0);
+});
+
+test("Services owner protection includes cwd-less hosts and stays bounded", async ({ page }) => {
+  await page.goto("/?demo=1&demoScenario=idle");
+  const result = await page.evaluate(async () => {
+    const model = await import("/src/features/runtime/model.ts");
+    const sessions = Array.from({ length: 600 }, (_, index) => ({
+      conversationId: `cwd-less-${index}`,
+      project: `project-${index}`,
+      workspace: `workspace-${index}`,
+      workspacePath: null,
+      status: "inactive" as const,
+      lastActivityAt: new Date(Date.UTC(2026, 7, 10, 0, 0, index)).toISOString(),
+    }));
+    const registry = Object.fromEntries(sessions.map((session, index) => [session.conversationId, [{
+      id: `event-${index}`,
+      cwd: null,
+      runtime: { sourceKind: "lettaHost", sourcePid: 10_000 + index, sourcePpid: 1, sourceStartedAtMs: 1_000_000 + index },
+    }]]));
+    const targets = model.buildLocalServiceOwnerTargets({ sessions: sessions as never, registry: registry as never });
+    return {
+      count: targets.length,
+      containsNewest: targets.some((target) => target.processId === 10_599),
+      containsCwdLess: targets.some((target) => target.processId === 10_000),
+    };
+  });
+  expect(result).toEqual({ count: 512, containsNewest: true, containsCwdLess: false });
+});
+
+test("expanded Services detail survives polling and stays inside a narrow panel", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  await page.goto("/?demo=1&demoScenario=multi");
+  await page.getByRole("tab", { name: "Services", exact: true }).click();
+  const servicesPanel = page.getByRole("tabpanel", { name: "Services" });
+  const disclosure = servicesPanel.getByRole("button", { name: "Expand Haabiz UI service details on port 5173" });
+  await disclosure.click();
+  await page.waitForTimeout(5_200);
+  await expect(servicesPanel.getByRole("button", { name: "Collapse Haabiz UI service details on port 5173" })).toHaveAttribute("aria-expanded", "true");
+  await expect(servicesPanel.getByText("/Users/mahiro/ghq/github.com/haabiz/admin-template/apps/catalog")).toBeVisible();
+  const geometry = await servicesPanel.evaluate((panel) => ({
+    clientWidth: panel.clientWidth,
+    scrollWidth: panel.scrollWidth,
+    nestedScroller: [...panel.querySelectorAll<HTMLElement>(".runtime-panel, .runtime-service-details")].some((element) => ["auto", "scroll"].includes(getComputedStyle(element).overflowY)),
+  }));
+  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
+  expect(geometry.nestedScroller).toBe(false);
 });
 
 test("Runtime and Services share canonical roving tabs, one outer scroller, and reset user scroll", async ({ page }) => {

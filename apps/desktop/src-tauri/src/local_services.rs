@@ -1,18 +1,47 @@
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Mutex,
+};
+
 use serde::{Deserialize, Serialize};
 
 const MAX_LOCAL_SERVICES: usize = 64;
-const MAX_LOCAL_SERVICE_OWNER_TARGETS: usize = 64;
+const MAX_LOCAL_SERVICE_OWNER_TARGETS: usize = 512;
 const FRONTEND_REGISTRY_SCHEMA_VERSION: u8 = 1;
 const MAX_FRONTEND_REGISTRY_BYTES: u64 = 32 * 1024;
 const MAX_FRONTEND_REGISTRY_ENTRIES: usize = 32;
 const MAX_FRONTEND_REGISTRY_HORIZON_MS: u64 = 15 * 60 * 1_000;
 const PROCESS_START_TOLERANCE_MS: u64 = 2_000;
+const LOCAL_SERVICE_CONTROL_TTL_MS: u64 = 20_000;
+const LOCAL_SERVICE_FORCE_TTL_MS: u64 = 15_000;
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct LocalServiceControlKey {
+    process_id: i32,
+    process_start_time_ms: u64,
+    bind_address: String,
+    port: u16,
+}
+
+#[derive(Default)]
+pub struct LocalServicesControlState {
+    allowed: Mutex<HashMap<LocalServiceControlKey, u64>>,
+    force_allowed: Mutex<HashMap<LocalServiceControlKey, u64>>,
+    protected_host_identities: Mutex<HashSet<(i32, u64)>>,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalService {
     pub process_id: i32,
+    pub process_start_time_ms: Option<u64>,
     pub process_name: String,
+    pub parent_process_id: Option<i32>,
+    pub parent_process_name: Option<String>,
+    pub executable_path: Option<String>,
+    pub user_id: Option<u32>,
+    pub physical_footprint_bytes: Option<u64>,
+    pub resident_size_bytes: Option<u64>,
     pub bind_address: String,
     pub port: u16,
     pub kind: String,
@@ -21,6 +50,37 @@ pub struct LocalService {
     pub url: Option<String>,
     pub cwd: Option<String>,
     pub owner: Option<LocalServiceOwner>,
+    pub control_available: bool,
+    pub control_unavailable_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LocalServiceControlRequest {
+    pub process_id: i32,
+    pub process_start_time_ms: u64,
+    pub bind_address: String,
+    pub port: u16,
+    pub mode: LocalServiceControlMode,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LocalServiceControlMode {
+    Stop,
+    ForceKill,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalServiceControlResult {
+    pub process_id: i32,
+    pub bind_address: String,
+    pub port: u16,
+    pub status: String,
+    pub signal: Option<String>,
+    pub still_listening: bool,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -231,9 +291,13 @@ fn parse_lsof_listeners(output: &str) -> Vec<Listener> {
 mod macos {
     use super::{
         parse_frontend_registry, parse_lsof_listeners, registry_entry_matches, unix_time_ms,
-        FrontendRegistryEntry, Listener, LocalService, LocalServiceOwner, LocalServiceOwnerTarget,
-        LocalServicesSnapshot, MAX_FRONTEND_REGISTRY_BYTES, MAX_LOCAL_SERVICE_OWNER_TARGETS,
+        FrontendRegistryEntry, Listener, LocalService, LocalServiceControlKey,
+        LocalServiceControlMode, LocalServiceControlRequest, LocalServiceControlResult,
+        LocalServiceOwner, LocalServiceOwnerTarget, LocalServicesControlState,
+        LocalServicesSnapshot, LOCAL_SERVICE_CONTROL_TTL_MS, LOCAL_SERVICE_FORCE_TTL_MS,
+        MAX_FRONTEND_REGISTRY_BYTES, MAX_LOCAL_SERVICE_OWNER_TARGETS,
     };
+    use crate::standalone_bridge::BRIDGE_PORT;
     use std::{
         fs::OpenOptions,
         io::{Read, Write},
@@ -258,6 +322,9 @@ mod macos {
     const MAX_HTTP_PROBE_BYTES: usize = 8 * 1024;
     const MAX_LSOF_OUTPUT_BYTES: u64 = 256 * 1024;
     const FRONTEND_REGISTRY_RELATIVE_PATH: &str = ".config/agent-halo/local-web-frontends.v1.json";
+    const CONTROL_REVALIDATION_BUDGET: Duration = Duration::from_millis(900);
+    const STOP_GRACE_PERIOD: Duration = Duration::from_millis(1_200);
+    const FORCE_KILL_GRACE_PERIOD: Duration = Duration::from_millis(800);
 
     #[derive(Debug, Clone, Default, PartialEq, Eq)]
     struct HttpEvidence {
@@ -271,6 +338,29 @@ mod macos {
         pid: i32,
         ppid: i32,
         start_time_ms: u64,
+        name: String,
+        effective_user_id: u32,
+        real_user_id: u32,
+        saved_user_id: u32,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum ControlTargetState {
+        Ready,
+        Stopped,
+        ListenerStopped,
+        IdentityChanged,
+        NotAllowed,
+        RevalidationUnavailable,
+    }
+
+    fn bounded_c_chars(ptr: *const libc::c_char, length: usize) -> String {
+        let bytes = unsafe { std::slice::from_raw_parts(ptr.cast::<u8>(), length) };
+        let end = bytes
+            .iter()
+            .position(|byte| *byte == 0)
+            .unwrap_or(bytes.len());
+        String::from_utf8_lossy(&bytes[..end]).into_owned()
     }
 
     fn frontend_registry_path() -> Option<PathBuf> {
@@ -345,7 +435,42 @@ mod macos {
                 .pbi_start_tvsec
                 .saturating_mul(1_000)
                 .saturating_add(info.pbi_start_tvusec / 1_000),
+            name: bounded_c_chars(info.pbi_name.as_ptr(), info.pbi_name.len()),
+            effective_user_id: info.pbi_uid,
+            real_user_id: info.pbi_ruid,
+            saved_user_id: info.pbi_svuid,
         })
+    }
+
+    fn process_executable_path(pid: i32) -> Option<String> {
+        let mut bytes = vec![0_u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+        let read = unsafe {
+            libc::proc_pidpath(pid, bytes.as_mut_ptr().cast::<c_void>(), bytes.len() as u32)
+        };
+        if read <= 0 {
+            return None;
+        }
+        bytes.truncate(read as usize);
+        let path = String::from_utf8_lossy(&bytes)
+            .trim_end_matches('\0')
+            .to_string();
+        (!path.is_empty()).then_some(path)
+    }
+
+    fn process_memory(pid: i32) -> (Option<u64>, Option<u64>) {
+        let mut info = unsafe { std::mem::zeroed::<libc::rusage_info_v4>() };
+        let result = unsafe {
+            libc::proc_pid_rusage(
+                pid,
+                libc::RUSAGE_INFO_V4,
+                (&mut info as *mut libc::rusage_info_v4).cast::<libc::rusage_info_t>(),
+            )
+        };
+        if result == 0 {
+            (Some(info.ri_phys_footprint), Some(info.ri_resident_size))
+        } else {
+            (None, None)
+        }
     }
 
     fn process_cwd(pid: i32) -> Option<String> {
@@ -546,6 +671,349 @@ mod macos {
         let mut command = Command::new("/usr/sbin/lsof");
         command.args(["-nP", "-iTCP", "-sTCP:LISTEN", "-FpcLn"]);
         run_bounded_output(command, deadline)
+    }
+
+    fn run_lsof_for_process(pid: i32, deadline: Instant) -> Result<Vec<u8>, String> {
+        let pid = pid.to_string();
+        let mut command = Command::new("/usr/sbin/lsof");
+        command.args(["-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", &pid, "-FpcLn"]);
+        match run_bounded_output(command, deadline) {
+            Err(error) if error == "lsof exited unsuccessfully (1)" => Ok(Vec::new()),
+            result => result,
+        }
+    }
+
+    fn request_key(request: &LocalServiceControlRequest) -> LocalServiceControlKey {
+        LocalServiceControlKey {
+            process_id: request.process_id,
+            process_start_time_ms: request.process_start_time_ms,
+            bind_address: request.bind_address.clone(),
+            port: request.port,
+        }
+    }
+
+    fn process_owned_by_current_user(process: &ProcessIdentity) -> bool {
+        let real_user_id = unsafe { libc::getuid() };
+        let effective_user_id = unsafe { libc::geteuid() };
+        real_user_id != 0
+            && real_user_id == effective_user_id
+            && process.effective_user_id == effective_user_id
+            && process.real_user_id == real_user_id
+            && process.saved_user_id == real_user_id
+    }
+
+    fn process_is_agent_halo_ancestor(process: &ProcessIdentity) -> bool {
+        process_ancestry(std::process::id() as i32)
+            .iter()
+            .any(|ancestor| {
+                ancestor.pid == process.pid && ancestor.start_time_ms == process.start_time_ms
+            })
+    }
+
+    fn process_is_exact_owner_target(
+        process: &ProcessIdentity,
+        owner_targets: &[LocalServiceOwnerTarget],
+    ) -> bool {
+        owner_targets.iter().any(|target| {
+            target.process_id == process.pid
+                && target
+                    .expected_start_time_ms
+                    .abs_diff(process.start_time_ms)
+                    <= super::PROCESS_START_TOLERANCE_MS
+        })
+    }
+
+    fn process_is_protected_host(
+        process: &ProcessIdentity,
+        state: &LocalServicesControlState,
+    ) -> bool {
+        state
+            .protected_host_identities
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .contains(&(process.pid, process.start_time_ms))
+    }
+
+    fn control_unavailable_reason(
+        listener: &Listener,
+        process: Option<&ProcessIdentity>,
+        owner_targets: &[LocalServiceOwnerTarget],
+    ) -> Option<String> {
+        let Some(process) = process else {
+            return Some("Process identity is unavailable".to_string());
+        };
+        if process.pid <= 1 {
+            return Some("System process is protected".to_string());
+        }
+        if listener.port == BRIDGE_PORT {
+            return Some("Agent Halo bridge is protected".to_string());
+        }
+        if process_is_agent_halo_ancestor(process) {
+            return Some("Agent Halo process is protected".to_string());
+        }
+        if process_is_exact_owner_target(process, owner_targets) {
+            return Some("Letta host is protected".to_string());
+        }
+        if !process_owned_by_current_user(process) {
+            return Some("Only current-user services can be stopped".to_string());
+        }
+        None
+    }
+
+    fn endpoint_is_listening(
+        request: &LocalServiceControlRequest,
+        deadline: Instant,
+    ) -> Result<bool, String> {
+        let output = run_lsof_for_process(request.process_id, deadline)?;
+        Ok(parse_lsof_listeners(&String::from_utf8_lossy(&output))
+            .iter()
+            .any(|listener| {
+                listener.process_id == request.process_id
+                    && listener.bind_address == request.bind_address
+                    && listener.port == request.port
+            }))
+    }
+
+    fn revalidate_control_target(
+        request: &LocalServiceControlRequest,
+        state: &LocalServicesControlState,
+        deadline: Instant,
+    ) -> ControlTargetState {
+        if request.process_id <= 1
+            || request.process_start_time_ms == 0
+            || request.port == 0
+            || !(request.bind_address == "0.0.0.0"
+                || request.bind_address == "::"
+                || request.bind_address.parse::<IpAddr>().is_ok())
+        {
+            return ControlTargetState::NotAllowed;
+        }
+        let now_ms = unix_time_ms();
+        let key = request_key(request);
+        let allowed = state
+            .allowed
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(&key)
+            .is_some_and(|expires_at_ms| *expires_at_ms >= now_ms);
+        if !allowed {
+            return ControlTargetState::NotAllowed;
+        }
+        let Some(before) = basic_process(request.process_id) else {
+            return ControlTargetState::Stopped;
+        };
+        if before.start_time_ms != request.process_start_time_ms {
+            return ControlTargetState::IdentityChanged;
+        }
+        if before.pid <= 1
+            || request.port == BRIDGE_PORT
+            || process_is_agent_halo_ancestor(&before)
+            || process_is_protected_host(&before, state)
+            || !process_owned_by_current_user(&before)
+        {
+            return ControlTargetState::NotAllowed;
+        }
+        match endpoint_is_listening(request, deadline) {
+            Ok(false) => return ControlTargetState::ListenerStopped,
+            Err(_) => return ControlTargetState::RevalidationUnavailable,
+            Ok(true) => {}
+        }
+        let Some(after) = basic_process(request.process_id) else {
+            return ControlTargetState::Stopped;
+        };
+        if after.start_time_ms != request.process_start_time_ms {
+            return ControlTargetState::IdentityChanged;
+        }
+        if after.effective_user_id != before.effective_user_id
+            || after.real_user_id != before.real_user_id
+            || after.saved_user_id != before.saved_user_id
+        {
+            return ControlTargetState::IdentityChanged;
+        }
+        ControlTargetState::Ready
+    }
+
+    fn control_result(
+        request: &LocalServiceControlRequest,
+        status: &str,
+        signal: Option<&str>,
+        still_listening: bool,
+        error: Option<&str>,
+    ) -> LocalServiceControlResult {
+        LocalServiceControlResult {
+            process_id: request.process_id,
+            bind_address: request.bind_address.clone(),
+            port: request.port,
+            status: status.to_string(),
+            signal: signal.map(str::to_string),
+            still_listening,
+            error: error.map(str::to_string),
+        }
+    }
+
+    fn wait_for_listener_exit(
+        request: &LocalServiceControlRequest,
+        state: &LocalServicesControlState,
+        duration: Duration,
+    ) -> ControlTargetState {
+        let deadline = Instant::now() + duration;
+        loop {
+            if Instant::now() >= deadline {
+                return ControlTargetState::Ready;
+            }
+            thread::sleep(Duration::from_millis(40));
+            if Instant::now() >= deadline {
+                return ControlTargetState::Ready;
+            }
+            let probe_deadline = (Instant::now() + Duration::from_millis(350)).min(deadline);
+            let state = revalidate_control_target(request, state, probe_deadline);
+            if state != ControlTargetState::Ready {
+                return state;
+            }
+        }
+    }
+
+    pub(super) fn control(
+        request: LocalServiceControlRequest,
+        state: &LocalServicesControlState,
+    ) -> LocalServiceControlResult {
+        let key = request_key(&request);
+        if matches!(request.mode, LocalServiceControlMode::Stop) {
+            state
+                .force_allowed
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .remove(&key);
+        } else {
+            let now_ms = unix_time_ms();
+            let force_allowed = state
+                .force_allowed
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .remove(&key)
+                .is_some_and(|expires_at_ms| expires_at_ms >= now_ms);
+            if !force_allowed {
+                return control_result(
+                    &request,
+                    "notAllowed",
+                    None,
+                    true,
+                    Some("Force kill requires a recent unsuccessful Stop attempt"),
+                );
+            }
+        }
+        let initial = revalidate_control_target(
+            &request,
+            state,
+            Instant::now() + CONTROL_REVALIDATION_BUDGET,
+        );
+        match initial {
+            ControlTargetState::Stopped => {
+                return control_result(&request, "alreadyStopped", None, false, None)
+            }
+            ControlTargetState::ListenerStopped => {
+                return control_result(&request, "listenerStopped", None, false, None)
+            }
+            ControlTargetState::IdentityChanged => {
+                return control_result(
+                    &request,
+                    "identityChanged",
+                    None,
+                    false,
+                    Some("Process identity changed; refresh Services"),
+                )
+            }
+            ControlTargetState::NotAllowed => {
+                return control_result(
+                    &request,
+                    "notAllowed",
+                    None,
+                    true,
+                    Some("This process is not available for service control"),
+                )
+            }
+            ControlTargetState::RevalidationUnavailable => {
+                return control_result(
+                    &request,
+                    "revalidationUnavailable",
+                    None,
+                    true,
+                    Some("Could not safely revalidate the listener"),
+                )
+            }
+            ControlTargetState::Ready => {}
+        }
+
+        let (signal, signal_name, grace_period) = match request.mode {
+            LocalServiceControlMode::Stop => (libc::SIGTERM, "SIGTERM", STOP_GRACE_PERIOD),
+            LocalServiceControlMode::ForceKill => {
+                (libc::SIGKILL, "SIGKILL", FORCE_KILL_GRACE_PERIOD)
+            }
+        };
+        if unsafe { libc::kill(request.process_id, signal) } != 0 {
+            let error = std::io::Error::last_os_error();
+            return control_result(
+                &request,
+                if error.kind() == std::io::ErrorKind::PermissionDenied {
+                    "permissionDenied"
+                } else {
+                    "failed"
+                },
+                None,
+                true,
+                Some("Could not signal the process"),
+            );
+        }
+
+        match wait_for_listener_exit(&request, state, grace_period) {
+            ControlTargetState::Ready => {
+                if matches!(request.mode, LocalServiceControlMode::Stop) {
+                    state
+                        .force_allowed
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .insert(
+                            key,
+                            unix_time_ms().saturating_add(LOCAL_SERVICE_FORCE_TTL_MS),
+                        );
+                }
+                control_result(&request, "stillRunning", Some(signal_name), true, None)
+            }
+            ControlTargetState::Stopped => control_result(
+                &request,
+                if matches!(request.mode, LocalServiceControlMode::ForceKill) {
+                    "killed"
+                } else {
+                    "stopped"
+                },
+                Some(signal_name),
+                false,
+                None,
+            ),
+            ControlTargetState::ListenerStopped => control_result(
+                &request,
+                "listenerStopped",
+                Some(signal_name),
+                false,
+                Some("Listener stopped, but the process is still running"),
+            ),
+            ControlTargetState::IdentityChanged => control_result(
+                &request,
+                "identityChanged",
+                Some(signal_name),
+                false,
+                Some("Process identity changed after the signal"),
+            ),
+            ControlTargetState::NotAllowed | ControlTargetState::RevalidationUnavailable => {
+                control_result(
+                    &request,
+                    "revalidationUnavailable",
+                    Some(signal_name),
+                    true,
+                    Some("Could not safely confirm the listener state"),
+                )
+            }
+        }
     }
 
     fn probe_address(listener: &Listener) -> Option<SocketAddr> {
@@ -774,13 +1242,42 @@ mod macos {
         format!("http://{host}:{}", listener.port)
     }
 
-    pub(super) fn sample(owner_targets: Vec<LocalServiceOwnerTarget>) -> LocalServicesSnapshot {
+    pub(super) fn sample(
+        owner_targets: Vec<LocalServiceOwnerTarget>,
+        state: &LocalServicesControlState,
+    ) -> LocalServicesSnapshot {
         let sampled_at_ms = unix_time_ms();
+        state
+            .allowed
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear();
         let owner_targets = owner_targets
             .into_iter()
             .take(MAX_LOCAL_SERVICE_OWNER_TARGETS)
             .filter(|target| target.process_id > 1 && target.expected_start_time_ms > 0)
             .collect::<Vec<_>>();
+        let protected_host_identities = {
+            let mut protected = state
+                .protected_host_identities
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            protected.retain(|(process_id, process_start_time_ms)| {
+                basic_process(*process_id)
+                    .is_some_and(|process| process.start_time_ms == *process_start_time_ms)
+            });
+            for target in &owner_targets {
+                if let Some(process) = basic_process(target.process_id).filter(|process| {
+                    target
+                        .expected_start_time_ms
+                        .abs_diff(process.start_time_ms)
+                        <= super::PROCESS_START_TOLERANCE_MS
+                }) {
+                    protected.insert((process.pid, process.start_time_ms));
+                }
+            }
+            protected.clone()
+        };
         let (registry_entries, registry_error) = match read_frontend_registry(sampled_at_ms) {
             Ok(entries) => (entries, None),
             Err(error) => (Vec::new(), Some(error)),
@@ -803,10 +1300,36 @@ mod macos {
             .iter()
             .map(|listener| {
                 let http = inspect_http(listener, deadline);
+                let process = basic_process(listener.process_id);
+                let parent = process
+                    .as_ref()
+                    .and_then(|identity| basic_process(identity.ppid));
+                let (physical_footprint_bytes, resident_size_bytes) =
+                    process_memory(listener.process_id);
                 let ancestry = process_ancestry(listener.process_id);
+                let control_unavailable_reason =
+                    control_unavailable_reason(listener, process.as_ref(), &owner_targets).or_else(
+                        || {
+                            process.as_ref().and_then(|identity| {
+                                protected_host_identities
+                                    .contains(&(identity.pid, identity.start_time_ms))
+                                    .then(|| "Letta host is protected".to_string())
+                            })
+                        },
+                    );
                 LocalService {
                     process_id: listener.process_id,
+                    process_start_time_ms: process.as_ref().map(|identity| identity.start_time_ms),
                     process_name: listener.process_name.clone(),
+                    parent_process_id: parent.as_ref().map(|identity| identity.pid),
+                    parent_process_name: parent
+                        .as_ref()
+                        .map(|identity| identity.name.clone())
+                        .filter(|name| !name.is_empty()),
+                    executable_path: process_executable_path(listener.process_id),
+                    user_id: process.as_ref().map(|identity| identity.effective_user_id),
+                    physical_footprint_bytes,
+                    resident_size_bytes,
                     bind_address: listener.bind_address.clone(),
                     port: listener.port,
                     kind: if http.http { "http" } else { "tcp" }.to_string(),
@@ -816,9 +1339,46 @@ mod macos {
                     url: http.http.then(|| browser_url(listener)),
                     cwd: process_cwd(listener.process_id),
                     owner: match_service_owner(&ancestry, &owner_targets),
+                    control_available: control_unavailable_reason.is_none(),
+                    control_unavailable_reason,
                 }
             })
-            .collect();
+            .collect::<Vec<_>>();
+
+        let expires_at_ms = sampled_at_ms.saturating_add(LOCAL_SERVICE_CONTROL_TTL_MS);
+        let mut allowed = state
+            .allowed
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        allowed.clear();
+        for service in &services {
+            let Some(process_start_time_ms) = service.process_start_time_ms else {
+                continue;
+            };
+            if service.control_available {
+                allowed.insert(
+                    LocalServiceControlKey {
+                        process_id: service.process_id,
+                        process_start_time_ms,
+                        bind_address: service.bind_address.clone(),
+                        port: service.port,
+                    },
+                    expires_at_ms,
+                );
+            }
+        }
+        let allowed_keys = allowed
+            .keys()
+            .cloned()
+            .collect::<std::collections::HashSet<_>>();
+        drop(allowed);
+        state
+            .force_allowed
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .retain(|key, force_expires_at_ms| {
+                *force_expires_at_ms >= sampled_at_ms && allowed_keys.contains(key)
+            });
 
         LocalServicesSnapshot {
             sampled_at_ms,
@@ -831,18 +1391,23 @@ mod macos {
     #[cfg(test)]
     mod tests {
         use super::{
-            inspect_http, is_next_dev_manifest_response, is_vite_dev_client_response,
-            is_web_app_document_response, match_service_owner, read_frontend_registry_path,
-            request_http, response_html_title, response_status, run_bounded_output, HttpEvidence,
-            ProcessIdentity,
+            control, control_unavailable_reason, endpoint_is_listening, inspect_http,
+            is_next_dev_manifest_response, is_vite_dev_client_response,
+            is_web_app_document_response, match_service_owner, process_is_protected_host,
+            read_frontend_registry_path, request_http, response_html_title, response_status,
+            run_bounded_output, HttpEvidence, ProcessIdentity,
         };
-        use crate::local_services::{Listener, LocalServiceOwnerTarget};
+        use crate::local_services::{
+            Listener, LocalServiceControlKey, LocalServiceControlMode, LocalServiceControlRequest,
+            LocalServiceOwnerTarget, LocalServicesControlState,
+        };
         use std::{
             fs,
             io::{Read, Write},
             net::TcpListener,
             os::unix::fs::{symlink, PermissionsExt},
-            process::Command,
+            process::{Child, Command, Stdio},
+            sync::Arc,
             thread,
             time::{Duration, Instant, SystemTime, UNIX_EPOCH},
         };
@@ -853,6 +1418,78 @@ mod macos {
             WebApp,
             GenericHtml,
             FakeJavascript,
+        }
+
+        struct ChildGuard(Child);
+
+        impl Drop for ChildGuard {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+
+        fn spawn_control_fixture(signal_handler: &str) -> (ChildGuard, LocalServiceControlRequest) {
+            let reserved = TcpListener::bind("127.0.0.1:0").expect("reserve fixture port");
+            let port = reserved.local_addr().expect("fixture address").port();
+            drop(reserved);
+            let script = [
+                "import signal,socket,sys,time\n",
+                "s=socket.socket()\n",
+                "s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)\n",
+                "s.bind(('127.0.0.1',int(sys.argv[1])))\n",
+                "s.listen(1)\n",
+                signal_handler,
+                "\nwhile True: time.sleep(0.05)\n",
+            ]
+            .join("");
+            let child = Command::new("/usr/bin/python3")
+                .args(["-c", &script, &port.to_string()])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("spawn test-owned listener");
+            let process_id = child.id() as i32;
+            let process_start_time_ms = (0..50)
+                .find_map(|_| {
+                    let process = super::basic_process(process_id);
+                    if process.is_none() {
+                        thread::sleep(Duration::from_millis(20));
+                    }
+                    process.map(|process| process.start_time_ms)
+                })
+                .expect("fixture process identity");
+            let request = LocalServiceControlRequest {
+                process_id,
+                process_start_time_ms,
+                bind_address: "127.0.0.1".to_string(),
+                port,
+                mode: LocalServiceControlMode::Stop,
+            };
+            let listening = (0..40).any(|_| {
+                let listening =
+                    endpoint_is_listening(&request, Instant::now() + Duration::from_millis(250))
+                        .unwrap_or(false);
+                if !listening {
+                    thread::sleep(Duration::from_millis(25));
+                }
+                listening
+            });
+            assert!(listening, "test-owned listener did not become visible");
+            (ChildGuard(child), request)
+        }
+
+        fn grant_control(state: &LocalServicesControlState, request: &LocalServiceControlRequest) {
+            state.allowed.lock().expect("lock allowed controls").insert(
+                LocalServiceControlKey {
+                    process_id: request.process_id,
+                    process_start_time_ms: request.process_start_time_ms,
+                    bind_address: request.bind_address.clone(),
+                    port: request.port,
+                },
+                u64::MAX,
+            );
         }
 
         fn listener_for_port(port: u16, process_name: &str) -> Listener {
@@ -1097,11 +1734,19 @@ mod macos {
                     pid: 90_257,
                     ppid: 81_354,
                     start_time_ms: 2_000,
+                    name: "bun".to_string(),
+                    effective_user_id: 501,
+                    real_user_id: 501,
+                    saved_user_id: 501,
                 },
                 ProcessIdentity {
                     pid: 81_354,
                     ppid: 28_071,
                     start_time_ms: 1_000,
+                    name: "letta".to_string(),
+                    effective_user_id: 501,
+                    real_user_id: 501,
+                    saved_user_id: 501,
                 },
             ];
             let targets = vec![LocalServiceOwnerTarget {
@@ -1140,6 +1785,195 @@ mod macos {
         }
 
         #[test]
+        fn service_control_protects_agent_halo_bridge_hosts_and_other_users() {
+            let user_id = unsafe { libc::geteuid() };
+            let process = ProcessIdentity {
+                pid: 42_424,
+                ppid: 1,
+                start_time_ms: 900_000,
+                name: "node".to_string(),
+                effective_user_id: user_id,
+                real_user_id: user_id,
+                saved_user_id: user_id,
+            };
+            let listener = Listener {
+                process_id: process.pid,
+                process_name: process.name.clone(),
+                bind_address: "127.0.0.1".to_string(),
+                port: 5_173,
+            };
+            assert_eq!(
+                control_unavailable_reason(&listener, Some(&process), &[]),
+                None
+            );
+            assert_eq!(
+                control_unavailable_reason(
+                    &Listener {
+                        port: crate::standalone_bridge::BRIDGE_PORT,
+                        ..listener.clone()
+                    },
+                    Some(&process),
+                    &[],
+                )
+                .as_deref(),
+                Some("Agent Halo bridge is protected")
+            );
+            assert_eq!(
+                control_unavailable_reason(
+                    &listener,
+                    Some(&process),
+                    &[LocalServiceOwnerTarget {
+                        conversation_id: "local-conv".to_string(),
+                        process_id: process.pid,
+                        expected_start_time_ms: process.start_time_ms,
+                        project: "agent-halo".to_string(),
+                        herdr_pane_id: None,
+                    }],
+                )
+                .as_deref(),
+                Some("Letta host is protected")
+            );
+            assert_eq!(
+                control_unavailable_reason(
+                    &listener,
+                    Some(&ProcessIdentity {
+                        effective_user_id: user_id.saturating_add(1),
+                        real_user_id: user_id.saturating_add(1),
+                        saved_user_id: user_id.saturating_add(1),
+                        ..process
+                    }),
+                    &[],
+                )
+                .as_deref(),
+                Some("Only current-user services can be stopped")
+            );
+        }
+
+        #[test]
+        fn force_kill_requires_native_progression_state() {
+            let state = LocalServicesControlState::default();
+            let result = control(
+                LocalServiceControlRequest {
+                    process_id: 42_424,
+                    process_start_time_ms: 900_000,
+                    bind_address: "127.0.0.1".to_string(),
+                    port: 5_173,
+                    mode: LocalServiceControlMode::ForceKill,
+                },
+                &state,
+            );
+            assert_eq!(result.status, "notAllowed");
+            assert_eq!(
+                result.error.as_deref(),
+                Some("Force kill requires a recent unsuccessful Stop attempt")
+            );
+        }
+
+        #[test]
+        fn force_progression_is_consumed_before_revalidation() {
+            let state = LocalServicesControlState::default();
+            let request = LocalServiceControlRequest {
+                process_id: 42_424,
+                process_start_time_ms: 900_000,
+                bind_address: "127.0.0.1".to_string(),
+                port: 5_173,
+                mode: LocalServiceControlMode::ForceKill,
+            };
+            let key = LocalServiceControlKey {
+                process_id: request.process_id,
+                process_start_time_ms: request.process_start_time_ms,
+                bind_address: request.bind_address.clone(),
+                port: request.port,
+            };
+            state
+                .allowed
+                .lock()
+                .expect("lock allowed controls")
+                .insert(key.clone(), u64::MAX);
+            state
+                .force_allowed
+                .lock()
+                .expect("lock force controls")
+                .insert(key, u64::MAX);
+
+            assert_eq!(control(request.clone(), &state).status, "alreadyStopped");
+            assert_eq!(control(request, &state).status, "notAllowed");
+        }
+
+        #[test]
+        fn closing_only_the_listener_never_unlocks_force_kill() {
+            let (mut child, request) = spawn_control_fixture(
+                "def handle_term(*_):\n    s.close()\nsignal.signal(signal.SIGTERM,handle_term)",
+            );
+            let state = LocalServicesControlState::default();
+            grant_control(&state, &request);
+
+            let result = control(request.clone(), &state);
+            assert_eq!(result.status, "listenerStopped");
+            assert!(child
+                .0
+                .try_wait()
+                .expect("inspect fixture process")
+                .is_none());
+            let force = control(
+                LocalServiceControlRequest {
+                    mode: LocalServiceControlMode::ForceKill,
+                    ..request
+                },
+                &state,
+            );
+            assert_eq!(force.status, "notAllowed");
+        }
+
+        #[test]
+        fn concurrent_force_requests_share_no_progression_proof() {
+            let (_child, request) =
+                spawn_control_fixture("signal.signal(signal.SIGTERM,signal.SIG_IGN)");
+            let state = Arc::new(LocalServicesControlState::default());
+            grant_control(&state, &request);
+            assert_eq!(control(request.clone(), &state).status, "stillRunning");
+
+            let force_request = LocalServiceControlRequest {
+                mode: LocalServiceControlMode::ForceKill,
+                ..request
+            };
+            let first_state = Arc::clone(&state);
+            let first_request = force_request.clone();
+            let first = thread::spawn(move || control(first_request, &first_state).status);
+            let second_state = Arc::clone(&state);
+            let second = thread::spawn(move || control(force_request, &second_state).status);
+            let mut statuses = vec![
+                first.join().expect("join first force request"),
+                second.join().expect("join second force request"),
+            ];
+            statuses.sort();
+            assert_eq!(
+                statuses,
+                vec!["killed".to_string(), "notAllowed".to_string()]
+            );
+        }
+
+        #[test]
+        fn retained_native_host_identity_remains_protected() {
+            let state = LocalServicesControlState::default();
+            let process = ProcessIdentity {
+                pid: 42_424,
+                ppid: 1,
+                start_time_ms: 900_000,
+                name: "letta".to_string(),
+                effective_user_id: unsafe { libc::geteuid() },
+                real_user_id: unsafe { libc::getuid() },
+                saved_user_id: unsafe { libc::getuid() },
+            };
+            state
+                .protected_host_identities
+                .lock()
+                .expect("lock protected host identities")
+                .insert((process.pid, process.start_time_ms));
+            assert!(process_is_protected_host(&process, &state));
+        }
+
+        #[test]
         fn stops_a_slow_drip_http_response_at_the_absolute_deadline() {
             let server = TcpListener::bind("127.0.0.1:0").expect("bind slow fixture server");
             let listener = listener_for_port(
@@ -1173,15 +2007,40 @@ mod macos {
 #[tauri::command]
 pub fn local_services(
     owner_targets: Option<Vec<LocalServiceOwnerTarget>>,
+    state: tauri::State<'_, LocalServicesControlState>,
 ) -> LocalServicesSnapshot {
     #[cfg(target_os = "macos")]
     {
-        return macos::sample(owner_targets.unwrap_or_default());
+        return macos::sample(owner_targets.unwrap_or_default(), &state);
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = owner_targets;
+        let _ = (owner_targets, state);
         unsupported_snapshot()
+    }
+}
+
+#[tauri::command]
+pub fn control_local_service(
+    request: LocalServiceControlRequest,
+    state: tauri::State<'_, LocalServicesControlState>,
+) -> LocalServiceControlResult {
+    #[cfg(target_os = "macos")]
+    {
+        return macos::control(request, &state);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = state;
+        LocalServiceControlResult {
+            process_id: request.process_id,
+            bind_address: request.bind_address,
+            port: request.port,
+            status: "unsupported".to_string(),
+            signal: None,
+            still_listening: false,
+            error: Some("Local service control currently supports macOS only".to_string()),
+        }
     }
 }
 
@@ -1189,7 +2048,7 @@ pub fn local_services(
 mod tests {
     use super::{
         parse_frontend_registry, parse_listener_name, parse_lsof_listeners, registry_entry_matches,
-        FrontendRegistryEntry, Listener,
+        FrontendRegistryEntry, Listener, LocalServiceControlRequest,
     };
 
     #[test]
@@ -1312,5 +2171,26 @@ mod tests {
             Some(900_000),
             now_ms,
         ));
+    }
+
+    #[test]
+    fn service_control_request_rejects_unknown_signal_or_command_fields() {
+        let valid = br#"{
+          "processId": 4242,
+          "processStartTimeMs": 900000,
+          "bindAddress": "127.0.0.1",
+          "port": 4173,
+          "mode": "stop"
+        }"#;
+        let unsafe_signal = br#"{
+          "processId": 4242,
+          "processStartTimeMs": 900000,
+          "bindAddress": "127.0.0.1",
+          "port": 4173,
+          "mode": "stop",
+          "signal": "SIGKILL"
+        }"#;
+        assert!(serde_json::from_slice::<LocalServiceControlRequest>(valid).is_ok());
+        assert!(serde_json::from_slice::<LocalServiceControlRequest>(unsafe_signal).is_err());
     }
 }

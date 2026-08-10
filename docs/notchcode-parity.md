@@ -4,7 +4,7 @@ Mahiro's direction is for Agent Halo to feel like Notchcode, not a generic AI da
 
 ## V1 scope decision
 
-Mahiro accepted Notchcode v1 as a read-only + dismiss + setup/control-plane surface. Bridge-level scoped focus/end actions remain intentionally unavailable until Letta exposes public scoped session/process controls. The desktop may focus trusted Herdr pane identity and retain the separately labeled native Ghostty fallback; neither may be described as Letta session/process control.
+Mahiro accepted Notchcode v1 as a read-only + dismiss + setup/control-plane surface. The later Services exception is a guarded desktop-native Stop/Force kill control for an exact current-user listener process; it is not a Letta conversation action. Bridge-level scoped focus/end actions remain intentionally unavailable until Letta exposes public scoped session/process controls. The desktop may focus trusted Herdr pane identity and retain the separately labeled native Ghostty fallback; neither may be described as Letta session/process control.
 
 ## Success criteria
 
@@ -29,6 +29,7 @@ Mahiro accepted Notchcode v1 as a read-only + dismiss + setup/control-plane surf
 | Capability-aware bridge | `packages/protocol/src/index.ts` defines bridge capabilities; `/health` and `/snapshot` include them from `mods/agent-halo.js`. | Done |
 | No fake bridge focus/end | Bridge-level `focusTerminal` / `endSession` remain false; desktop terminal-host focus is not presented as Letta session/process control. | Done |
 | Herdr + Ghostty focus | Trusted runtime identity focuses an exact Herdr pane first; absent/stale/failed identity keeps Ghostty cwd/title/id matching and reports fallback activation honestly. | Done |
+| Guarded local service control | Services disclosure rows show bounded native process detail. Eligible current-user listeners require confirmation and exact PID/start/endpoint/UID revalidation before SIGTERM; SIGKILL is a second confirmed fallback. Agent Halo, its bridge/ancestors, system/other-user processes, and exact Letta hosts remain protected. | Current |
 | Real end session action | Needs a real Letta session/process capability before exposing controls. | Post-v1 |
 
 ## Focus/end capability evidence
@@ -60,4 +61,4 @@ Use `pnpm desktop:dev` for native smoke because browser demo cannot exercise Tau
 
 ## Completion rule
 
-Notchcode v1 can be considered complete under Mahiro's accepted read-only + dismiss + setup/control-plane scope. Do not expose **bridge-level** focus/end controls while `sessionActions.focusTerminal` and `sessionActions.endSession` are unavailable. Desktop-only Herdr/Ghostty terminal-host focus may remain when it is labeled as navigation rather than a Letta capability.
+Notchcode v1 can be considered complete under Mahiro's accepted read-only + dismiss + setup/control-plane scope plus the later, explicitly bounded local-listener control exception. Do not expose **bridge-level** focus/end controls while `sessionActions.focusTerminal` and `sessionActions.endSession` are unavailable. Desktop-only Herdr/Ghostty terminal-host focus may remain when it is labeled as navigation rather than a Letta capability; Services Stop/Force kill must remain labeled and implemented as native listener-process control.

@@ -1,8 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { buildRuntimeSessionViews, buildRuntimeUsageTargets, createDemoLocalServices, createDemoRuntimeSnapshots, isTerminalRuntimeStatus, runtimeTargetKey, selectRuntimeSamplingTargets } from "./model";
+import { buildLocalServiceOwnerTargets, buildRuntimeSessionViews, buildRuntimeUsageTargets, createDemoLocalServices, createDemoRuntimeSnapshots, isTerminalRuntimeStatus, localServiceProcessKey, runtimeTargetKey, selectRuntimeSamplingTargets } from "./model";
 import { mergeRuntimeEndedIdentities, readRuntimeEndedIdentities, reconcileRuntimeEndedIdentities, writeRuntimeEndedIdentities } from "./persistence";
-import type { ILocalService, ILocalServiceOwnerTarget, ILocalServicesSnapshot, IRuntimeMonitorView, IRuntimeNativeTarget, IRuntimeTargetSource, IRuntimeUsageSnapshot, IRuntimeUsageTarget } from "./types";
+import type { ILocalService, ILocalServiceControlRequest, ILocalServiceControlResult, ILocalServiceOwnerTarget, ILocalServicesSnapshot, IRuntimeMonitorView, IRuntimeNativeTarget, IRuntimeTargetSource, IRuntimeUsageSnapshot, IRuntimeUsageTarget } from "./types";
 
 const ACTIVE_REFRESH_MS = 5_000;
 
@@ -15,6 +15,7 @@ interface IUseRuntimeMonitorOptions extends IRuntimeTargetSource {
 
 export const useRuntimeMonitor = ({ canUseNativeControls, demoMode, processActive, registry, servicesActive, sessions }: IUseRuntimeMonitorOptions): IRuntimeMonitorView => {
   const allTargets = useMemo(() => buildRuntimeUsageTargets({ registry, sessions }), [registry, sessions]);
+  const serviceOwnerTargets = useMemo(() => buildLocalServiceOwnerTargets({ registry, sessions }), [registry, sessions]);
   const [endedIdentities, setEndedIdentities] = useState<Map<string, number>>(readRuntimeEndedIdentities);
   const eligibleTargets = useMemo(() => allTargets.filter((target) => !endedIdentities.has(runtimeTargetKey(target))), [allTargets, endedIdentities]);
   const targets = useMemo(() => selectRuntimeSamplingTargets(allTargets, endedIdentities), [allTargets, endedIdentities]);
@@ -23,12 +24,15 @@ export const useRuntimeMonitor = ({ canUseNativeControls, demoMode, processActiv
   const targetKey = useMemo(() => targets.map((target) => `${target.processId}:${target.sourceStartedAtMs}:${target.conversationId}:${target.runtimeEventId}:${target.cwd ?? ""}`).join("|"), [targets]);
   const targetsRef = useRef(targets);
   const allTargetsRef = useRef(allTargets);
+  const serviceOwnerTargetsRef = useRef(serviceOwnerTargets);
   const targetKeyRef = useRef(targetKey);
   targetKeyRef.current = targetKey;
   const refreshingRef = useRef(false);
   const servicesLoadingRef = useRef(false);
+  const servicesControlInFlightRef = useRef(false);
   const processRequestVersionRef = useRef(0);
   const servicesRequestVersionRef = useRef(0);
+  const demoStoppedProcessKeysRef = useRef(new Set<string>());
   const [snapshots, setSnapshots] = useState<IRuntimeUsageSnapshot[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +45,8 @@ export const useRuntimeMonitor = ({ canUseNativeControls, demoMode, processActiv
   useEffect(() => {
     targetsRef.current = targets;
     allTargetsRef.current = allTargets;
-  }, [allTargets, targets]);
+    serviceOwnerTargetsRef.current = serviceOwnerTargets;
+  }, [allTargets, serviceOwnerTargets, targets]);
 
   useEffect(() => {
     setEndedIdentities((previous) => reconcileRuntimeEndedIdentities(previous, allTargets));
@@ -75,12 +80,12 @@ export const useRuntimeMonitor = ({ canUseNativeControls, demoMode, processActiv
   }, []);
 
   const refreshServices = useCallback(async () => {
-    if (servicesLoadingRef.current) return;
+    if (servicesLoadingRef.current || servicesControlInFlightRef.current) return;
     const requestVersion = servicesRequestVersionRef.current + 1;
     servicesRequestVersionRef.current = requestVersion;
     if (demoMode) {
       if (servicesRequestVersionRef.current === requestVersion) {
-        setServices(createDemoLocalServices());
+        setServices(createDemoLocalServices().filter((service) => !demoStoppedProcessKeysRef.current.has(localServiceProcessKey(service))));
         setServicesError(null);
       }
       return;
@@ -93,13 +98,7 @@ export const useRuntimeMonitor = ({ canUseNativeControls, demoMode, processActiv
     servicesLoadingRef.current = true;
     setServicesLoading(true);
     try {
-      const ownerTargets: ILocalServiceOwnerTarget[] = targetsRef.current.map(({ conversationId, processId, sourceStartedAtMs, project, herdrPaneId }) => ({
-        conversationId,
-        processId,
-        expectedStartTimeMs: sourceStartedAtMs,
-        project,
-        herdrPaneId,
-      }));
+      const ownerTargets: ILocalServiceOwnerTarget[] = serviceOwnerTargetsRef.current;
       const snapshot = await invoke<ILocalServicesSnapshot>("local_services", { ownerTargets });
       if (servicesRequestVersionRef.current !== requestVersion) return;
       setServices(snapshot.services);
@@ -114,6 +113,80 @@ export const useRuntimeMonitor = ({ canUseNativeControls, demoMode, processActiv
       setServicesLoading(false);
     }
   }, [canUseNativeControls, demoMode]);
+
+  const controlLocalService = useCallback(async (request: ILocalServiceControlRequest): Promise<ILocalServiceControlResult> => {
+    if (demoMode) {
+      const result: ILocalServiceControlResult = {
+        processId: request.processId,
+        bindAddress: request.bindAddress,
+        port: request.port,
+        status: request.mode === "stop" ? "stillRunning" : "killed",
+        signal: request.mode === "stop" ? "SIGTERM" : "SIGKILL",
+        stillListening: request.mode === "stop",
+        error: null,
+      };
+      if (request.mode === "forceKill") {
+        const processKey = `${request.processId}:${request.processStartTimeMs}`;
+        demoStoppedProcessKeysRef.current.add(processKey);
+        setServices((current) => current.filter((service) => localServiceProcessKey(service) !== processKey));
+      }
+      return result;
+    }
+    if (!canUseNativeControls) {
+      return {
+        processId: request.processId,
+        bindAddress: request.bindAddress,
+        port: request.port,
+        status: "unsupported",
+        signal: null,
+        stillListening: false,
+        error: "Local service control needs the native Agent Halo app",
+      };
+    }
+    if (servicesControlInFlightRef.current) {
+      return {
+        processId: request.processId,
+        bindAddress: request.bindAddress,
+        port: request.port,
+        status: "failed",
+        signal: null,
+        stillListening: true,
+        error: "Another service control is still running",
+      };
+    }
+    servicesControlInFlightRef.current = true;
+    try {
+      const result = await invoke<ILocalServiceControlResult>("control_local_service", { request });
+      if (["stopped", "killed", "alreadyStopped"].includes(result.status)) {
+        const processKey = `${request.processId}:${request.processStartTimeMs}`;
+        setServices((current) => current.filter((service) => localServiceProcessKey(service) !== processKey));
+        window.setTimeout(() => void refreshServices(), 150);
+      } else if (result.status === "listenerStopped") {
+        setServices((current) => current.filter((service) => !(
+          service.processId === request.processId &&
+          service.processStartTimeMs === request.processStartTimeMs &&
+          service.bindAddress === request.bindAddress &&
+          service.port === request.port
+        )));
+        window.setTimeout(() => void refreshServices(), 150);
+      } else if (["identityChanged", "notAllowed"].includes(result.status)) {
+        window.setTimeout(() => void refreshServices(), 150);
+      }
+      return result;
+    } catch (reason) {
+      return {
+        processId: request.processId,
+        bindAddress: request.bindAddress,
+        port: request.port,
+        status: "failed",
+        signal: null,
+        stillListening: true,
+        error: reason instanceof Error ? reason.message : "Could not control the local service",
+      };
+    } finally {
+      servicesControlInFlightRef.current = false;
+    }
+  }, [canUseNativeControls, demoMode, refreshServices]);
 
   const refreshProcesses = useCallback(async () => {
     const requestVersion = processRequestVersionRef.current + 1;
@@ -179,5 +252,6 @@ export const useRuntimeMonitor = ({ canUseNativeControls, demoMode, processActiv
     sampledAtMs,
     refreshProcesses: () => void refreshProcesses(),
     refreshServices: () => void refreshServices(),
+    controlLocalService,
   };
 };
