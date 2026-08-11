@@ -6,19 +6,13 @@ Production workflow for future identities and Halo Bot loadouts: [`pet-productio
 
 Agent Halo uses **Pet** as the product-facing companion concept. The selectable global roster contains only **Halo Bot** and **Haloform**. Halo Bot remains the fresh/default identity and has ten curated user-selectable loadouts; Haloform is the approved provider-derived CRT companion built from a native96 master and explicit semantic masks. Both remain event/state projections rather than persistent desktop-pet simulations.
 
-The Completion Pet is event-only:
+The Pet uses schema-v2 summons with three explicit purposes:
 
-- a naturally completed Focus phase may summon one floating Pet;
-- Skip, Restart phase, Reset all, Pause, break completion, and app launch do not summon it;
-- the Pet appears in a separate transparent Tauri window without activating or focusing Agent Halo;
-- clicking the Pet opens transparent radial **Start Short break** (or **Start Long break**), **Later**, and **Close** controls;
-- when Movement Break is enabled, those controls offer a camera-free exercise chooser; only a specific **10 Squats** or **10 Overhead Reaches** click may request camera access;
-- **Close** and **Later** hide only the current summon;
-- Setup owns one global Pet On/Off preference, default On;
-- turning Pet Off hides any active summon immediately;
-- Setup → Pet persists a floating-only `1×`, `1.5×`, or `2×` size (default `2×`) and can explicitly **Show Pet** without changing Pomodoro or the On/Off preference;
-- successful Pet display replaces the completion notification;
-- when Pet is disabled or cannot be displayed, the existing silent macOS notification remains the fallback.
+- **Focus completion** — a naturally completed Focus phase may summon one floating Pet. It retains **Start Short break** (or **Start Long break**), **Later**, **Close**, and, when **Offer movement after Focus** is enabled, a camera-free movement chooser. Skip, Restart phase, Reset all, Pause, break completion, and app launch do not create this purpose.
+- **Manual companion** — the Focus **Move** tab can show the companion at any time, including with a requested Squat or Overhead Reach. Its first pass reuses the five body motion families and mirrors the main-projected Pet state plus Signal V4; it persists until **Hide** and exposes **Focus**, **Choose move**, and **Hide**. It never prepares, starts, or otherwise changes Pomodoro. An automatic Focus completion does not replace a visible manual companion; the already scheduled macOS completion notification remains the fallback.
+- **Setup preview** — **Show Pet** creates a separate preview with dismiss-only controls. It cannot queue a product action, start a break, or start movement; close emits only the bounded ownership-clearing dismissal acknowledgement.
+
+The Pet appears in a separate transparent Tauri window without activating or focusing Agent Halo. A chooser is camera-free; only a specific **10 Squats** or **10 Overhead Reaches** click may request camera access. Setup owns automatic **Completion Pet after Focus** On/Off (default On), floating-only `1×`, `1.5×`, or `2×` size (default `2×`), and the **Offer movement after Focus** preference (default Off). Turning automatic Completion Pet Off hides only an active Focus-completion summon; manual companion access and a visible manual companion remain available. Successful Focus-completion display replaces its completion notification; disabled, unavailable, or manual-companion-preserving completion delivery leaves the silent macOS notification as fallback.
 
 ## Ownership
 
@@ -32,7 +26,7 @@ main Pomodoro state
   -> main renderer starts the prepared break
 ```
 
-The native Pet window stores the latest summon and one bounded pending action. The hidden Pet renderer reads this projection; the main renderer consumes actions and validates that the requested Short/Long break is still idle before starting it. Movement Break reuses this boundary: choosing a specific exercise creates a summon-bound native attempt token, the isolated Pet WebView runs one local camera stream through the shared bundled pose runtime and the selected exercise tracker, and only that current attempt may queue a `movement-complete` action for the main renderer to revalidate. See `docs/movement-break.md`.
+The native Pet window atomically stores the initial schema-v2 summon plus main-renderer projection before showing the surface, then accepts live projection updates and one bounded pending action. The hidden Pet renderer reads that projection; it never independently derives session state. A manual companion therefore mirrors main-projected body state and detached Signal V4 until Hide. The main renderer consumes actions: it opens and deliberately focuses the Focus surface for `open-focus`, clears only the matching main-side owner for `dismiss`, and only revalidates a Focus-completion `start-break` or `movement-complete` action before starting its prepared break. A manual movement completion returns to the manual companion and queues no Pomodoro action. See `docs/movement-break.md`.
 
 ## Notification fallback
 
@@ -56,7 +50,7 @@ This keeps the OS-owned fallback available when the renderer/app is unavailable 
 - The radial action surface grows around the Pet's screen-space center when space permits, clamps fully into the visible frame, and returns to the saved collapsed position when it closes.
 - Pet is created and passively shown non-focusable; passive show never calls `set_focus` or application activation.
 - A deliberate user click may explicitly make the Pet focusable and focus its controls.
-- Setup preview is a separate summon purpose with dismiss-only radial controls. It never queues or starts a break.
+- Setup preview is a separate summon purpose with dismiss-only radial controls. It never queues or starts a break; close only acknowledges dismissal so main-side ownership cannot remain stale.
 - The companion body is the only drag surface; controls opt out.
 - Reduced motion holds the existing final Done/check frames without sprite playback.
 
@@ -85,7 +79,7 @@ Haloform is one global identity across ambient, session, group, detail, Setup, a
 - Pet route does not mount main Pomodoro/session/bridge ownership.
 - Natural Focus completion summons exactly once; non-natural transitions do not.
 - Start break action is validated and consumed exactly once by main.
-- `×`, Not now, disable, and show failure leave no invisible hitbox.
+- `×`, Later, automatic-completion disable, and show failure leave no invisible hitbox; a pinned manual companion is dismissed only by **Hide** or app shutdown.
 - Passive show preserves the current macOS foreground app and keyboard focus.
 - Drag/restore/clamp passes on the selected display, Retina coordinates, and disconnected-display fallback.
 - Release evidence must cover browser state/action/accessibility tests, Rust position/state tests, performance budgets, release install/restart, installed-binary equality, and a native foreground smoke; each promotion reports this evidence explicitly rather than treating the Phase 1 contract as a blanket PASS.

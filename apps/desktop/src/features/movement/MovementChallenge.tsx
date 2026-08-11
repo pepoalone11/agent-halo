@@ -8,6 +8,7 @@ import "../../styles/movement.css";
 const lineCoordinate = (value: number | null): number | null => value === null ? null : Math.max(0, Math.min(1, value)) * 100;
 
 export interface IMovementChallengeProps {
+  allowStartBreak: boolean;
   snapshot: IMovementPoseSnapshot;
   busy: boolean;
   cameraPreviewEnabled: boolean;
@@ -18,7 +19,7 @@ export interface IMovementChallengeProps {
   onStartBreak: () => void;
 }
 
-export const MovementChallenge = ({ busy, cameraPreviewEnabled, demoPoseEnabled, onCancel, onRetry, onSnapshot, onStartBreak, snapshot }: IMovementChallengeProps) => {
+export const MovementChallenge = ({ allowStartBreak, busy, cameraPreviewEnabled, demoPoseEnabled, onCancel, onRetry, onSnapshot, onStartBreak, snapshot }: IMovementChallengeProps) => {
   const exercise = getMovementExercise(snapshot.exerciseId);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -207,7 +208,8 @@ export const MovementChallenge = ({ busy, cameraPreviewEnabled, demoPoseEnabled,
 
       <footer className="movement-actions">
         {terminalFailure ? <button type="button" onClick={onRetry} disabled={busy}><RotateCcw size={13} strokeWidth={2.3} />Try again</button> : null}
-        {terminalFailure ? <button className="is-primary" type="button" onClick={onStartBreak} disabled={busy}><Play size={13} strokeWidth={2.3} />Start break</button> : null}
+        {terminalFailure && allowStartBreak ? <button className="is-primary" type="button" onClick={onStartBreak} disabled={busy}><Play size={13} strokeWidth={2.3} />Start break</button> : null}
+        {terminalFailure && !allowStartBreak ? <button className="is-primary" type="button" onClick={onCancel} disabled={busy}>Back to Pet</button> : null}
         {!terminalFailure && !complete ? <button className="is-danger" type="button" onClick={onCancel} disabled={busy}>Cancel</button> : null}
         <span className="movement-safety">Camera stops when this closes</span>
       </footer>

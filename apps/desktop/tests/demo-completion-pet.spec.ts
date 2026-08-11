@@ -11,16 +11,17 @@ test("Pet surface is projection-only and uses the approved Haloform completion a
   const companion = page.getByRole("button", { name: "Focus complete. Open break actions" });
   await expect(companion).toBeVisible();
   await expect(companion).toHaveAttribute("aria-expanded", "false");
-  const visual = page.locator('.completion-pet-visual[data-pet="haloform"][data-state="working"][data-motion="working"][data-signal="none"]');
+  expect(await companion.boundingBox()).toMatchObject({ x: 0, y: 0, width: 116, height: 88 });
+  const visual = page.locator('.completion-pet-visual[data-pet="haloform"][data-state="done"][data-motion="done"][data-signal="done"]');
   await expect(visual).toHaveCount(1);
-  await expect(visual.locator(".halo-pet-body")).toHaveCSS("animation-name", "haloform-working");
-  await expect(visual.locator(".halo-pet-body")).toHaveCSS("animation-duration", "0.5s");
-  await expect(visual.locator(".halo-pet-body")).toHaveCSS("animation-iteration-count", "infinite");
+  await expect(visual.locator(".halo-pet-body")).toHaveCSS("animation-name", "haloform-done");
+  await expect(visual.locator(".halo-pet-body")).toHaveCSS("animation-duration", "1.44s");
+  await expect(visual.locator(".halo-pet-body")).toHaveCSS("animation-iteration-count", "1");
   await expect(visual.locator(".halo-pet-body")).toHaveCSS("width", "78px");
   await expect(visual.locator(".halo-pet-body")).toHaveCSS("height", "78px");
-  await expect(visual.locator(".halo-pet-body")).toHaveCSS("background-image", /\/body\/haloform\/completion\/working\.png/);
-  await expect(visual.locator(".halo-pet-signal")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Hide completion pet" })).toHaveCount(0);
+  await expect(visual.locator(".halo-pet-body")).toHaveCSS("background-image", /\/body\/haloform\/completion\/done\.png/);
+  await expect(visual.locator(".halo-pet-signal")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Close" })).toHaveCount(0);
   await expect(page.getByRole("status")).toHaveText("Focus complete. Short break ready.");
   expect(await page.evaluate(() => window.localStorage.getItem("agent-halo.pomodoro"))).toBeNull();
 });
@@ -49,8 +50,8 @@ test("Pet radial menu is compact, keyboard reachable, and starts the prepared br
   expect(startBox).not.toBeNull();
   expect(Math.abs((startBox!.y + startBox!.height / 2) - orbit!.y)).toBeLessThanOrEqual(1);
   const [laterBox, closeBox] = await Promise.all([
-    dialog.getByRole("button", { name: "Not now" }).boundingBox(),
-    dialog.getByRole("button", { name: "Hide completion pet" }).boundingBox(),
+    dialog.getByRole("button", { name: "Later" }).boundingBox(),
+    dialog.getByRole("button", { name: "Close" }).boundingBox(),
   ]);
   expect(laterBox).not.toBeNull();
   expect(closeBox).not.toBeNull();
@@ -61,15 +62,15 @@ test("Pet radial menu is compact, keyboard reachable, and starts the prepared br
   expect(await page.evaluate(() => window.__AGENT_HALO_PET_ACTIONS__)).toEqual(["start-break"]);
 });
 
-test("Not now and close hide only the active Pet summon", async ({ page }) => {
+test("Later and close hide only the active Pet summon", async ({ page }) => {
   await page.setViewportSize({ width: 260, height: 230 });
   await page.goto("/?surface=pet&demoPet=1&demoPetExpanded=1");
-  await page.getByRole("button", { name: "Not now" }).click();
+  await page.getByRole("button", { name: "Later" }).click();
   await expect(page.locator(".completion-pet-root")).toHaveAttribute("data-visible", "false");
   expect(await page.evaluate(() => window.__AGENT_HALO_PET_ACTIONS__ ?? [])).toEqual([]);
 
   await page.reload();
-  await page.getByRole("button", { name: "Hide completion pet" }).click();
+  await page.getByRole("button", { name: "Close" }).click();
   await expect(page.locator(".completion-pet-root")).toHaveAttribute("data-visible", "false");
 });
 
@@ -87,7 +88,7 @@ test("pointer-open enters the action order and Escape restores the companion", a
   await expect(companion).toHaveCSS("outline-style", "none");
 
   await companion.press("Enter");
-  await page.getByRole("button", { name: "Hide completion pet" }).focus();
+  await page.getByRole("button", { name: "Close" }).focus();
   await page.keyboard.press("Escape");
   await expect(companion).toBeFocused();
   await expect(companion).toHaveAttribute("aria-expanded", "false");
@@ -98,7 +99,9 @@ test("reduced motion holds the final Pet completion frame", async ({ page }) => 
   await page.setViewportSize({ width: 116, height: 88 });
   await page.goto("/?surface=pet&demoPet=1");
   await expect(page.locator(".completion-pet-visual .halo-pet-body")).toHaveCSS("animation-name", "none");
-  await expect(page.locator(".completion-pet-visual .halo-pet-signal")).toHaveCount(0);
+  await expect(page.locator(".completion-pet-visual")).toHaveAttribute("data-signal", "done");
+  await expect(page.locator(".completion-pet-visual .halo-pet-body")).toHaveCSS("background-position", "-234px 0px");
+  await expect(page.locator(".completion-pet-visual .halo-pet-signal")).toHaveCSS("animation-name", "none");
 });
 
 test("native Pet surface reads projection and sends only validated custom commands", async ({ page }) => {
@@ -108,17 +111,34 @@ test("native Pet surface reads projection and sends only validated custom comman
     (window as typeof window & { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
       invoke: async (command: string, args?: Record<string, unknown>) => {
         calls.push({ command, args });
-        if (command === "completion_pet_state") return {
-          summon: { schemaVersion: 1, id: "native-pet", pet: "haloform", petSize: "large", preview: false, nextPhase: "short-break", title: "Focus complete", actionLabel: "Start Short break" },
-        };
+        if (command === "completion_pet_state") {
+          const summon = { schemaVersion: 2, id: "native-pet", purpose: "focus-completion", pet: "haloform", petSize: "large", movementBreakEnabled: false, nextPhase: "short-break" };
+          return {
+            summon,
+            projection: {
+              schemaVersion: 2,
+              summon,
+              sessionStatus: "working",
+              activityKind: "session",
+              dataState: "working",
+              motionMapping: { idle: "idle", working: "working", attention: "attention", done: "done", error: "error" },
+              replayId: "native-pet:working",
+            },
+          };
+        }
         return null;
       },
     };
   });
   await page.setViewportSize({ width: 260, height: 230 });
   await page.goto("/?surface=pet");
+  const root = page.locator(".completion-pet-root");
+  const visual = page.locator('.completion-pet-visual[data-pet="haloform"]');
   const companion = page.getByRole("button", { name: "Focus complete. Open break actions" });
   await expect(companion).toBeVisible();
+  await expect(root).toHaveAttribute("data-purpose", "focus-completion");
+  await expect(root).toHaveAttribute("data-projection-replay-id", "native-pet:working");
+  await expect(visual).toHaveAttribute("data-state", "working");
   await companion.click();
   await expect.poll(() => page.evaluate(() => (window as typeof window & { __petNativeCalls: Array<{ command: string }> }).__petNativeCalls.some((call) => call.command === "activate_completion_pet"))).toBe(true);
   await expect.poll(() => page.evaluate(() => (window as typeof window & { __petNativeCalls: Array<{ command: string }> }).__petNativeCalls.some((call) => call.command === "set_completion_pet_expanded"))).toBe(true);
@@ -131,9 +151,21 @@ test("Halo Bot completion keeps the selected loadout and square pixel geometry",
     window.localStorage.setItem("agent-halo.halo-bot-loadout", "f061");
     (window as typeof window & { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
       invoke: async (command: string) => {
-        if (command === "completion_pet_state") return {
-          summon: { schemaVersion: 1, id: "halo-bot-pet", pet: "halo-bot", loadout: "f061", petSize: "large", preview: false, nextPhase: "short-break", title: "Focus complete", actionLabel: "Start Short break" },
-        };
+        if (command === "completion_pet_state") {
+          const summon = { schemaVersion: 2, id: "halo-bot-pet", purpose: "focus-completion", pet: "halo-bot", loadout: "f061", petSize: "large", movementBreakEnabled: false, nextPhase: "short-break" };
+          return {
+            summon,
+            projection: {
+              schemaVersion: 2,
+              summon,
+              sessionStatus: "working",
+              activityKind: "session",
+              dataState: "working",
+              motionMapping: { idle: "idle", working: "working", attention: "attention", done: "done", error: "error" },
+              replayId: "halo-bot-pet:working",
+            },
+          };
+        }
         return null;
       },
     };
@@ -152,34 +184,221 @@ test("Halo Bot completion keeps the selected loadout and square pixel geometry",
   await expect(body).toHaveCSS("image-rendering", "pixelated");
 });
 
-test("manual Pet preview is dismiss-only and never exposes a Pomodoro action", async ({ page }) => {
+test("setup Pet preview is dismiss-only and never exposes a Pomodoro action", async ({ page }) => {
   await page.addInitScript(() => {
     (window as typeof window & { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
       invoke: async (command: string) => {
-        if (command === "completion_pet_state") return {
-          summon: { schemaVersion: 1, id: "preview-pet", pet: "haloform", petSize: "large", preview: true, nextPhase: "short-break", title: "Pet preview", actionLabel: "" },
-        };
+        if (command === "completion_pet_state") {
+          const summon = { schemaVersion: 2, id: "preview-pet", purpose: "setup-preview", pet: "haloform", petSize: "large", nextPhase: null };
+          return {
+            summon,
+            projection: {
+              schemaVersion: 2,
+              summon,
+              sessionStatus: "idle",
+              activityKind: "session",
+              dataState: "idle",
+              motionMapping: { idle: "idle", working: "working", attention: "attention", done: "done", error: "error" },
+              replayId: "preview-pet:idle",
+            },
+          };
+        }
         return null;
       },
     };
   });
   await page.setViewportSize({ width: 260, height: 230 });
   await page.goto("/?surface=pet");
-  await page.getByRole("button", { name: "Pet preview. Open controls" }).click();
-  await expect(page.getByRole("dialog", { name: "Pet preview controls" })).toBeVisible();
+  await page.getByRole("button", { name: "Pet setup preview. Open controls" }).click();
+  await expect(page.getByRole("dialog", { name: "Pet setup preview controls" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Start .*break/ })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Not now" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Hide completion pet" })).toBeFocused();
-  await expect(page.getByRole("status")).toHaveText("Pet preview.");
+  await expect(page.getByRole("button", { name: "Later" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Close" })).toBeFocused();
+  await expect(page.getByRole("status")).toHaveText("Pet setup preview.");
+});
+
+test("native manual companion uses its v2 projection and never offers a prepared break", async ({ page }) => {
+  await page.addInitScript(() => {
+    const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
+    (window as typeof window & { __manualCompanionCalls: typeof calls }).__manualCompanionCalls = calls;
+    const summon = { schemaVersion: 2, id: "manual-companion", purpose: "manual-companion", pet: "haloform", petSize: "large", nextPhase: null };
+    const projection = {
+      schemaVersion: 2,
+      summon,
+      sessionStatus: "attention",
+      activityKind: "asking",
+      dataState: "attention",
+      motionMapping: { idle: "idle", working: "working", attention: "done", done: "done", error: "error" },
+      replayId: "manual-companion:attention",
+    };
+    (window as typeof window & { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
+      invoke: async (command: string, args?: Record<string, unknown>) => {
+        calls.push({ command, args });
+        if (command === "completion_pet_state") return { summon, projection };
+        return null;
+      },
+    };
+  });
+  await page.setViewportSize({ width: 260, height: 230 });
+  await page.goto("/?surface=pet");
+  const root = page.locator(".completion-pet-root");
+  const visual = page.locator('.completion-pet-visual[data-pet="haloform"]');
+  await expect(root).toHaveAttribute("data-purpose", "manual-companion");
+  await expect(root).toHaveAttribute("data-movement-option", "true");
+  await expect(root).toHaveAttribute("data-projection-replay-id", "manual-companion:attention");
+  await expect(visual).toHaveAttribute("data-state", "attention");
+  await expect(visual).toHaveAttribute("data-motion", "done");
+  await expect(visual).toHaveAttribute("data-signal", "attention-asking");
+
+  const companion = page.getByRole("button", { name: "Manual companion. Open controls" });
+  await companion.click();
+  const dialog = page.getByRole("dialog", { name: "Manual companion controls" });
+  await expect(dialog).toBeVisible();
+  const focus = dialog.getByRole("button", { name: "Open Focus" });
+  await expect(focus).toBeFocused();
+  await expect(dialog.getByRole("button", { name: "Choose movement exercise" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Hide" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: /Start .*break/ })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Later" })).toHaveCount(0);
+
+  await focus.click();
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __manualCompanionCalls: Array<{ command: string; args?: Record<string, unknown> }> }).__manualCompanionCalls.some((call) => call.command === "submit_completion_pet_action" && call.args?.action === "open-focus"))).toBe(true);
+  await expect(page.getByRole("button", { name: "Manual companion. Open controls" })).toBeFocused();
+  await expect(root).toHaveAttribute("data-visible", "true");
+  expect(await page.evaluate(() => (window as typeof window & { __manualCompanionCalls: Array<{ command: string; args?: Record<string, unknown> }> }).__manualCompanionCalls.filter((call) => call.command === "hide_completion_pet").length)).toBe(0);
+});
+
+test("manual companion requested Movement starts only its requested exercise and cancels cleanly", async ({ page }) => {
+  await page.addInitScript(() => {
+    const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
+    (window as typeof window & { __manualRequestedMovementCalls: typeof calls }).__manualRequestedMovementCalls = calls;
+    const summon = { schemaVersion: 2, id: "manual-overhead", purpose: "manual-companion", pet: "haloform", petSize: "large", nextPhase: null, requestedExerciseId: "overhead-reach" };
+    const projection = {
+      schemaVersion: 2,
+      summon,
+      sessionStatus: "working",
+      activityKind: "session",
+      dataState: "working",
+      motionMapping: { idle: "idle", working: "working", attention: "attention", done: "done", error: "error" },
+      replayId: "manual-overhead:working",
+    };
+    (window as typeof window & { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
+      invoke: async (command: string, args?: Record<string, unknown>) => {
+        calls.push({ command, args });
+        if (command === "completion_pet_state") return { summon, projection };
+        return null;
+      },
+    };
+  });
+  await page.setViewportSize({ width: 600, height: 420 });
+  await page.goto("/?surface=pet&demoCameraOff=1");
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __manualRequestedMovementCalls: Array<{ command: string; args?: Record<string, unknown> }> }).__manualRequestedMovementCalls.filter((call) => call.command === "set_completion_pet_movement" && call.args?.active === true && call.args?.summonId === "manual-overhead").length)).toBe(1);
+  await expect(page.getByRole("dialog", { name: "10 Overhead Reaches movement break" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "10 Squats movement break" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Start Short break" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Close movement break" }).click();
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __manualRequestedMovementCalls: Array<{ command: string; args?: Record<string, unknown> }> }).__manualRequestedMovementCalls.filter((call) => call.command === "set_completion_pet_movement" && call.args?.active === false && call.args?.summonId === "manual-overhead").length)).toBe(1);
+  await expect(page.getByRole("button", { name: "Manual companion. Open controls" })).toBeFocused();
+  expect(await page.evaluate(() => (window as typeof window & { __manualRequestedMovementCalls: Array<{ command: string }> }).__manualRequestedMovementCalls.filter((call) => call.command === "submit_completion_pet_action").length)).toBe(0);
+});
+
+test("manual Movement camera failure returns to Pet without offering or queueing a break", async ({ page }) => {
+  await page.addInitScript(() => {
+    const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
+    (window as typeof window & { __manualFailureCalls: typeof calls }).__manualFailureCalls = calls;
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: async () => { throw new DOMException("Camera denied", "NotAllowedError"); } },
+    });
+    const summon = { schemaVersion: 2, id: "manual-camera-failure", purpose: "manual-companion", pet: "haloform", petSize: "large", nextPhase: null };
+    const projection = {
+      schemaVersion: 2,
+      summon,
+      sessionStatus: "idle",
+      activityKind: "session",
+      dataState: "idle",
+      motionMapping: { idle: "idle", working: "working", attention: "attention", done: "done", error: "error" },
+      replayId: "manual-camera-failure:idle",
+    };
+    (window as typeof window & { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
+      invoke: async (command: string, args?: Record<string, unknown>) => {
+        calls.push({ command, args });
+        if (command === "completion_pet_state") return { summon, projection };
+        return null;
+      },
+    };
+  });
+  await page.setViewportSize({ width: 600, height: 420 });
+  await page.goto("/?surface=pet");
+  await page.getByRole("button", { name: "Manual companion. Open controls" }).click();
+  await page.getByRole("button", { name: "Choose movement exercise" }).click();
+  await page.getByRole("button", { name: "Start 10 Squats movement break" }).click();
+  const challenge = page.getByRole("dialog", { name: "10 Squats movement break" });
+  await expect(challenge.getByRole("button", { name: "Back to Pet" })).toBeVisible();
+  await expect(challenge.getByRole("button", { name: "Start break" })).toHaveCount(0);
+  await challenge.getByRole("button", { name: "Back to Pet" }).click();
+  await expect(page.getByRole("button", { name: "Manual companion. Open controls" })).toBeFocused();
+  expect(await page.evaluate(() => (window as typeof window & { __manualFailureCalls: Array<{ command: string }> }).__manualFailureCalls.filter((call) => call.command === "submit_completion_pet_action").length)).toBe(0);
+});
+
+test("manual Movement completion returns to the companion without a Pomodoro action", async ({ page }) => {
+  await page.addInitScript(() => {
+    const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
+    (window as typeof window & { __manualCompletedMovementCalls: typeof calls }).__manualCompletedMovementCalls = calls;
+    const summon = { schemaVersion: 2, id: "manual-squat", purpose: "manual-companion", pet: "haloform", petSize: "large", nextPhase: null };
+    const projection = {
+      schemaVersion: 2,
+      summon,
+      sessionStatus: "working",
+      activityKind: "session",
+      dataState: "working",
+      motionMapping: { idle: "idle", working: "working", attention: "attention", done: "done", error: "error" },
+      replayId: "manual-squat:working",
+    };
+    (window as typeof window & { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
+      invoke: async (command: string, args?: Record<string, unknown>) => {
+        calls.push({ command, args });
+        if (command === "completion_pet_state") return { summon, projection };
+        return null;
+      },
+    };
+  });
+  await page.setViewportSize({ width: 600, height: 420 });
+  await page.goto("/?surface=pet&demoCameraOff=1&demoMovementCompleted=1");
+  await page.getByRole("button", { name: "Manual companion. Open controls" }).click();
+  await page.getByRole("button", { name: "Choose movement exercise" }).click();
+  await page.getByRole("dialog", { name: "Choose movement exercise" }).getByRole("button", { name: "Start 10 Squats movement break" }).click();
+  await expect(page.getByRole("dialog", { name: "10 Squats movement break" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "Celebration" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __manualCompletedMovementCalls: Array<{ command: string; args?: Record<string, unknown> }> }).__manualCompletedMovementCalls.filter((call) => call.command === "set_completion_pet_movement" && call.args?.active === true && call.args?.summonId === "manual-squat").length)).toBe(1);
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __manualCompletedMovementCalls: Array<{ command: string; args?: Record<string, unknown> }> }).__manualCompletedMovementCalls.filter((call) => call.command === "set_completion_pet_movement" && call.args?.active === false && call.args?.summonId === "manual-squat").length)).toBe(1);
+  await expect(page.getByRole("button", { name: "Manual companion. Open controls" })).toBeFocused();
+  await expect(page.locator(".completion-pet-root")).toHaveAttribute("data-projection-replay-id", "manual-squat:working");
+  await expect(page.locator('.completion-pet-visual[data-state="done"][data-signal="done"]')).toHaveCount(1);
+  expect(await page.evaluate(() => (window as typeof window & { __manualCompletedMovementCalls: Array<{ command: string }> }).__manualCompletedMovementCalls.filter((call) => call.command === "submit_completion_pet_action").length)).toBe(0);
+  expect(await page.evaluate(() => window.localStorage.getItem("agent-halo.pomodoro"))).toBeNull();
 });
 
 test("global Haloform completion exposes the prepared break actions", async ({ page }) => {
   await page.addInitScript(() => {
     (window as typeof window & { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
       invoke: async (command: string) => {
-        if (command === "completion_pet_state") return {
-          summon: { schemaVersion: 1, id: "haloform-focus", pet: "haloform", petSize: "large", preview: false, movementBreakEnabled: false, nextPhase: "short-break", title: "Focus complete", actionLabel: "Start Short break" },
-        };
+        if (command === "completion_pet_state") {
+          const summon = { schemaVersion: 2, id: "haloform-focus", purpose: "focus-completion", pet: "haloform", petSize: "large", movementBreakEnabled: false, nextPhase: "short-break" };
+          return {
+            summon,
+            projection: {
+              schemaVersion: 2,
+              summon,
+              sessionStatus: "done",
+              activityKind: "done",
+              dataState: "done",
+              motionMapping: { idle: "idle", working: "working", attention: "attention", done: "done", error: "error" },
+              replayId: "haloform-focus:done",
+            },
+          };
+        }
         return null;
       },
     };
@@ -188,7 +407,7 @@ test("global Haloform completion exposes the prepared break actions", async ({ p
   await page.goto("/?surface=pet");
   const root = page.locator(".completion-pet-root");
   const companion = page.getByRole("button", { name: "Focus complete. Open break actions" });
-  await expect(root).toHaveAttribute("data-preview", "false");
+  await expect(root).not.toHaveAttribute("data-preview", /.+/);
   await expect(page.getByRole("status")).toHaveText("Focus complete. Short break ready.");
   await companion.click();
   const dialog = page.getByRole("dialog", { name: "Focus complete actions" });
@@ -198,26 +417,39 @@ test("global Haloform completion exposes the prepared break actions", async ({ p
   await expect(context).toBeVisible();
   await expect(context).toHaveCSS("color", "rgb(255, 255, 255)");
   await expect(context).toHaveCSS("background-color", "rgb(0, 0, 0)");
-  await expect(dialog.getByRole("button", { name: "Not now" })).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Hide completion pet" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Later" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Close" })).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Choose Movement Break exercise" })).toHaveCount(0);
   await page.keyboard.press("Tab");
-  await expect(dialog.getByRole("button", { name: "Not now" })).toBeFocused();
-  await expect(dialog.getByRole("button", { name: "Not now" })).toHaveCSS("outline-width", "2px");
+  await expect(dialog.getByRole("button", { name: "Later" })).toBeFocused();
+  await expect(dialog.getByRole("button", { name: "Later" })).toHaveCSS("outline-width", "2px");
 });
 
-test("global Haloform preview uses the generic dismiss-only surface", async ({ page }) => {
+test("global Haloform setup preview uses the generic dismiss-only surface", async ({ page }) => {
   await page.addInitScript(() => {
     (window as typeof window & { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
-      invoke: async (command: string) => command === "completion_pet_state"
-        ? { summon: { schemaVersion: 1, id: "haloform-preview", pet: "haloform", petSize: "large", preview: true, nextPhase: "short-break", title: "Pet preview", actionLabel: "" } }
-        : null,
+      invoke: async (command: string) => {
+        if (command !== "completion_pet_state") return null;
+        const summon = { schemaVersion: 2, id: "haloform-preview", purpose: "setup-preview", pet: "haloform", petSize: "large", nextPhase: null };
+        return {
+          summon,
+          projection: {
+            schemaVersion: 2,
+            summon,
+            sessionStatus: "idle",
+            activityKind: "session",
+            dataState: "idle",
+            motionMapping: { idle: "idle", working: "working", attention: "attention", done: "done", error: "error" },
+            replayId: "haloform-preview:idle",
+          },
+        };
+      },
     };
   });
   await page.setViewportSize({ width: 116, height: 88 });
   await page.goto("/?surface=pet");
   const root = page.locator(".completion-pet-root");
-  const companion = page.getByRole("button", { name: "Pet preview. Open controls" });
+  const companion = page.getByRole("button", { name: "Pet setup preview. Open controls" });
   const petVisual = page.locator('.completion-pet-visual[data-pet="haloform"]');
   const visual = petVisual.locator(".halo-pet-body");
   await expect(root).toHaveAttribute("data-preview", "true");
@@ -226,29 +458,29 @@ test("global Haloform preview uses the generic dismiss-only surface", async ({ p
   await expect(visual).toHaveCSS("width", "78px");
   await expect(visual).toHaveCSS("height", "78px");
   await expect(visual).toHaveCSS("background-size", "234px 78px");
-  await expect(page.getByRole("status")).toHaveText("Pet preview.");
+  await expect(page.getByRole("status")).toHaveText("Pet setup preview.");
   await companion.focus();
   await expect(petVisual).toHaveCSS("filter", /drop-shadow/);
 
   await page.setViewportSize({ width: 260, height: 230 });
   await companion.click();
-  const dialog = page.getByRole("dialog", { name: "Pet preview controls" });
+  const dialog = page.getByRole("dialog", { name: "Pet setup preview controls" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("button", { name: /Start .*break/ })).toHaveCount(0);
-  await expect(dialog.getByRole("button", { name: "Not now" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Later" })).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Choose Movement Break exercise" })).toHaveCount(0);
-  const close = dialog.getByRole("button", { name: "Hide completion pet" });
+  const close = dialog.getByRole("button", { name: "Close" });
   await expect(close).toBeFocused();
-  await expect(page.locator(".completion-pet-context")).toHaveText("Pet preview");
+  await expect(page.locator(".completion-pet-context")).toHaveText("Setup preview");
 });
 
-test("reduced motion holds Haloform on its first frame", async ({ page }) => {
+test("reduced motion holds Haloform on the meaningful Done final frame", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 116, height: 88 });
   await page.goto("/?surface=pet&demoPet=1");
   const body = page.locator('.completion-pet-visual[data-pet="haloform"] .halo-pet-body');
   await expect(body).toHaveCSS("animation-name", "none");
-  await expect(body).toHaveCSS("background-position", "0px 0px");
+  await expect(body).toHaveCSS("background-position", "-234px 0px");
 });
 
 test("Haloform keeps square generic geometry at 1× and 1.5×", async ({ page }) => {
@@ -283,8 +515,8 @@ test("Movement Break opens a two-exercise picker before any explicit camera acti
   await expect(page.getByRole("dialog", { name: "10 Overhead Reaches movement break" })).toHaveCount(0);
   await page.getByRole("button", { name: "Focus complete. Open break actions" }).click();
   await expect(page.getByRole("button", { name: "Start Short break" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Not now" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Hide completion pet" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Later" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close" })).toBeVisible();
   await page.getByRole("button", { name: "Choose Movement Break exercise" }).click();
   const picker = page.getByRole("dialog", { name: "Choose movement break exercise" });
   const squats = picker.getByRole("button", { name: "Start 10 Squats movement break" });
@@ -335,7 +567,21 @@ test("Overhead Reach starts the shared camera only after its specific exercise c
     });
     controlled.__TAURI_INTERNALS__ = {
       invoke: async (command: string) => {
-        if (command === "completion_pet_state") return { summon: { schemaVersion: 1, id: "reach-focus", pet: "haloform", petSize: "large", preview: false, movementBreakEnabled: true, nextPhase: "short-break", title: "Focus complete", actionLabel: "Start Short break" } };
+        if (command === "completion_pet_state") {
+          const summon = { schemaVersion: 2, id: "reach-focus", purpose: "focus-completion", pet: "haloform", petSize: "large", movementBreakEnabled: true, nextPhase: "short-break" };
+          return {
+            summon,
+            projection: {
+              schemaVersion: 2,
+              summon,
+              sessionStatus: "working",
+              activityKind: "session",
+              dataState: "working",
+              motionMapping: { idle: "idle", working: "working", attention: "attention", done: "done", error: "error" },
+              replayId: "reach-focus:working",
+            },
+          };
+        }
         return null;
       },
     };
@@ -363,9 +609,21 @@ test("native Movement Break queues one completion result without mounting Pomodo
     (window as typeof window & { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
       invoke: async (command: string, args?: Record<string, unknown>) => {
         calls.push({ command, args });
-        if (command === "completion_pet_state") return {
-          summon: { schemaVersion: 1, id: "movement-focus", pet: "haloform", petSize: "large", preview: false, movementBreakEnabled: true, nextPhase: "short-break", title: "Focus complete", actionLabel: "Start Short break" },
-        };
+        if (command === "completion_pet_state") {
+          const summon = { schemaVersion: 2, id: "movement-focus", purpose: "focus-completion", pet: "haloform", petSize: "large", movementBreakEnabled: true, nextPhase: "short-break" };
+          return {
+            summon,
+            projection: {
+              schemaVersion: 2,
+              summon,
+              sessionStatus: "working",
+              activityKind: "session",
+              dataState: "working",
+              motionMapping: { idle: "idle", working: "working", attention: "attention", done: "done", error: "error" },
+              replayId: "movement-focus:working",
+            },
+          };
+        }
         return null;
       },
     };
@@ -391,9 +649,21 @@ test("Movement attempt remains cancellable and clears its native attempt token",
     (window as typeof window & { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
       invoke: async (command: string, args?: Record<string, unknown>) => {
         calls.push({ command, args });
-        if (command === "completion_pet_state") return {
-          summon: { schemaVersion: 1, id: "movement-permission", pet: "haloform", petSize: "large", preview: false, movementBreakEnabled: true, nextPhase: "short-break", title: "Focus complete", actionLabel: "Start Short break" },
-        };
+        if (command === "completion_pet_state") {
+          const summon = { schemaVersion: 2, id: "movement-permission", purpose: "focus-completion", pet: "haloform", petSize: "large", movementBreakEnabled: true, nextPhase: "short-break" };
+          return {
+            summon,
+            projection: {
+              schemaVersion: 2,
+              summon,
+              sessionStatus: "working",
+              activityKind: "session",
+              dataState: "working",
+              motionMapping: { idle: "idle", working: "working", attention: "attention", done: "done", error: "error" },
+              replayId: "movement-permission:working",
+            },
+          };
+        }
         return null;
       },
     };
@@ -427,7 +697,21 @@ test("authorized Movement Break shows a live preview with fixed target and stops
     Object.defineProperty(navigator, "mediaDevices", { value: { getUserMedia: async () => stream }, configurable: true });
     controlled.__TAURI_INTERNALS__ = {
       invoke: async (command: string, args?: Record<string, unknown>) => {
-        if (command === "completion_pet_state") return { summon: { schemaVersion: 1, id: "preview-focus", pet: "haloform", petSize: "large", preview: false, movementBreakEnabled: true, nextPhase: "short-break", title: "Focus complete", actionLabel: "Start Short break" } };
+        if (command === "completion_pet_state") {
+          const summon = { schemaVersion: 2, id: "preview-focus", purpose: "focus-completion", pet: "haloform", petSize: "large", movementBreakEnabled: true, nextPhase: "short-break" };
+          return {
+            summon,
+            projection: {
+              schemaVersion: 2,
+              summon,
+              sessionStatus: "working",
+              activityKind: "session",
+              dataState: "working",
+              motionMapping: { idle: "idle", working: "working", attention: "attention", done: "done", error: "error" },
+              replayId: "preview-focus:working",
+            },
+          };
+        }
         if (command === "set_completion_pet_movement" && args?.active === false) throw new Error("resize failed");
         return null;
       },

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { Activity, BarChart3, Check, ChevronLeft, Clock3, Focus, List, Server, Settings, Timer, Trash2, X } from "lucide-react";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createRoot } from "react-dom/client";
 import type { AgentHaloPresenceStatus } from "@agent-halo/protocol";
 import { ActivityPet, type HaloPetName } from "./features/session/HaloPet";
@@ -39,6 +39,7 @@ import { POMODORO_PET_HANDOFF_WINDOW_MS } from "./features/pomodoro/model";
 import { usePomodoro } from "./features/pomodoro/usePomodoro";
 import { useStopwatch } from "./features/stopwatch/useStopwatch";
 import { readCompletionPetEnabled, readCompletionPetSize, writeCompletionPetEnabled, writeCompletionPetSize, type CompletionPetSize } from "./features/pet/preferences";
+import { buildCompanionProjection } from "./features/pet/companionProjection";
 import type { ICompletionPetActionRequest, ICompletionPetSummon } from "./features/pet/types";
 import { SetupPanel } from "./features/setup/SetupPanel";
 import type { IDisplayStateSnapshot } from "./features/setup/display";
@@ -48,6 +49,7 @@ import type { IUsageSettings } from "./features/usage/types";
 import { useAgentUsageList } from "./features/usage/useAgentUsageList";
 import { useRuntimeMonitor } from "./features/runtime/useRuntimeMonitor";
 import { readMovementBreakEnabled, writeMovementBreakEnabled } from "./features/movement/preferences";
+import type { MovementExerciseId } from "./features/movement/types";
 import "./styles.css";
 
 const KEEP_AWAKE_STORAGE_KEY = "agent-halo.keep-awake-while-working";
@@ -147,6 +149,13 @@ interface IStatusView {
   staleForMs: number;
 }
 
+interface ICompanionPresentation {
+  sessionStatus: ISessionSummary["status"];
+  activityKind: ActivityKind;
+  motionMapping: HaloPetMotionMapping;
+  replayId: string;
+}
+
 const getGlyphStatus = (status: IStatusView["status"]): ISessionSummary["status"] => {
   if (status === "thinking" || status === "tool-running") return "working";
   if (status === "stale") return "inactive";
@@ -176,8 +185,15 @@ const App = () => {
   const [movementBreakEnabled, setMovementBreakEnabled] = useState(readMovementBreakEnabled);
   const [petPreviewStatus, setPetPreviewStatus] = useState<string | null>(null);
   const [petPreviewState, setPetPreviewState] = useState<"idle" | "showing" | "shown" | "stale" | "error">("idle");
+  const [activePetSummon, setActivePetSummon] = useState<ICompletionPetSummon | null>(null);
   const completionPetEnabledRef = useRef(completionPetEnabled);
   const completionPetSummonGenerationRef = useRef(0);
+  const companionPresentationRef = useRef<ICompanionPresentation>({
+    sessionStatus: "idle",
+    activityKind: "session",
+    motionMapping: petMotionMapping,
+    replayId: "companion-initial",
+  });
   const [displayState, setDisplayState] = useState<IDisplayStateSnapshot | null>(null);
   const [displayLoading, setDisplayLoading] = useState(false);
   const [displayError, setDisplayError] = useState<string | null>(null);
@@ -189,6 +205,7 @@ const App = () => {
   const [renderPanel, setRenderPanel] = useState(DEMO_MODE && !DEMO_COLLAPSED);
   const [panelHeight, setPanelHeight] = useState(PANEL_MIN_HEIGHT);
   const [panelWindowWidth, setPanelWindowWidth] = useState(getPanelWindowWidth);
+  const [panelFocusRequestId, setPanelFocusRequestId] = useState(0);
   const [hoverExpandSuppressed, setHoverExpandSuppressed] = useState(false);
   const [activeMainTab, setActiveMainTab] = useState<MainPanelTab>("sessions");
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -232,6 +249,21 @@ const App = () => {
   const observedCompletionIdRef = useRef(pomodoro.state.lastCompletion?.id ?? null);
   pomodoroRef.current = pomodoro;
 
+  const showCompanionSummon = useCallback(async (summon: ICompletionPetSummon): Promise<boolean> => {
+    if (!canUseNativeControls) return false;
+    try {
+      const projection = buildCompanionProjection({ summon, ...companionPresentationRef.current });
+      const shown = await invoke<boolean>("show_completion_pet", { summon, projection });
+      if (!shown) return false;
+      setActivePetSummon(summon);
+      return true;
+    } catch {
+      await invoke("hide_completion_pet").catch(() => undefined);
+      setActivePetSummon(null);
+      return false;
+    }
+  }, [canUseNativeControls]);
+
   useEffect(() => {
     if (!canUseNativeControls) return undefined;
     let disposed = false;
@@ -241,7 +273,23 @@ const App = () => {
       busy = true;
       try {
         const action = await invoke<ICompletionPetActionRequest | null>("take_completion_pet_action");
-        if (disposed || !action || !["movement-complete", "start-break"].includes(action.action)) return;
+        if (disposed || !action) return;
+        if (action.action === "dismiss") {
+          setActivePetSummon((current) => current?.id === action.summonId ? null : current);
+          return;
+        }
+        if (action.action === "open-focus") {
+          shouldFocusPanelRef.current = true;
+          nativeFocusRequestRef.current = true;
+          setPanelFocusRequestId((current) => current + 1);
+          setSelectedSessionId(null);
+          setSetupOpen(false);
+          setActiveMainTab("pomodoro");
+          setPanelOpen(true);
+          return;
+        }
+        if (!["movement-complete", "start-break"].includes(action.action) || action.nextPhase === null) return;
+        setActivePetSummon(null);
         const current = pomodoroRef.current;
         if (current.state.status === "idle" && current.state.phase === action.nextPhase && current.state.lastCompletion?.completedPhase === "focus" && current.state.lastCompletion.id === action.summonId) {
           current.start();
@@ -265,21 +313,22 @@ const App = () => {
     if (!completion || completion.id === observedCompletionIdRef.current) return;
     observedCompletionIdRef.current = completion.id;
     if (!completionPetEnabled || !canUseNativeControls || completion.completedPhase !== "focus") return;
+    // An intentionally shown manual companion is pinned until Hide. Keep its
+    // delayed macOS notification instead of replacing it with completion UI.
+    if (activePetSummon?.purpose === "manual-companion") return;
     if (completion.observedAt - completion.completedAt >= POMODORO_PET_HANDOFF_WINDOW_MS) return;
     if (completion.nextPhase !== "short-break" && completion.nextPhase !== "long-break") return;
     const summonGeneration = completionPetSummonGenerationRef.current + 1;
     completionPetSummonGenerationRef.current = summonGeneration;
     const summon: ICompletionPetSummon = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: completion.id,
+      purpose: "focus-completion",
       pet,
       loadout: pet === "halo-bot" ? haloBotLoadout : undefined,
       petSize: completionPetSize,
-      preview: false,
       movementBreakEnabled,
       nextPhase: completion.nextPhase,
-      title: "Focus complete",
-      actionLabel: completion.nextPhase === "long-break" ? "Start Long break" : "Start Short break",
     };
     void (async () => {
       const handoffDeadlineMs = completion.completedAt + POMODORO_PET_HANDOFF_WINDOW_MS;
@@ -294,15 +343,18 @@ const App = () => {
       }
       let shown = false;
       try {
-        shown = await invoke<boolean>("show_completion_pet", { summon });
+        shown = await showCompanionSummon(summon);
       } catch {
         shown = false;
       }
       if (shown && completionPetEnabledRef.current && completionPetSummonGenerationRef.current === summonGeneration && Date.now() < handoffDeadlineMs) return;
-      if (shown) await invoke("hide_completion_pet").catch(() => undefined);
+      if (shown) {
+        setActivePetSummon(null);
+        await invoke("hide_completion_pet").catch(() => undefined);
+      }
       await restoreFallback();
     })();
-  }, [canUseNativeControls, completionPetEnabled, completionPetSize, haloBotLoadout, movementBreakEnabled, pet, pomodoro.state.lastCompletion]);
+  }, [activePetSummon?.purpose, canUseNativeControls, completionPetEnabled, completionPetSize, haloBotLoadout, movementBreakEnabled, pet, pomodoro.state.lastCompletion, showCompanionSummon]);
   const isConnected = connection.status === "connected";
   const connectionTitle = DEMO_MODE ? "Demo mode" : (connection.message ?? connection.status);
   const workspace = shortenPath(presence.cwd);
@@ -453,6 +505,31 @@ const App = () => {
   const hasStopwatchActivity = stopwatch.state.status === "running" || stopwatch.state.status === "paused";
   const showStopwatchActivity = !hasCriticalAgentActivity && !hasPomodoroActivity && hasStopwatchActivity;
   const hasLiveActivity = hasAgentLiveActivity || showPomodoroActivity || showStopwatchActivity;
+  const companionReplayId = activitySession
+    ? `${activitySession.conversationId}:${activitySession.lastActivityAt}:${activityKind}`
+    : lastLiveEvent
+      ? `${lastLiveEvent.type}:${lastLiveEvent.timestamp}`
+      : `${presence.conversationId ?? "idle"}:${presence.lastEventAt ?? "initial"}:${activityStatus}`;
+  companionPresentationRef.current = {
+    sessionStatus: activityStatus,
+    activityKind,
+    motionMapping: petMotionMapping,
+    replayId: companionReplayId,
+  };
+
+  useEffect(() => {
+    if (!canUseNativeControls || !activePetSummon) return;
+    const projection = buildCompanionProjection({
+      summon: activePetSummon,
+      sessionStatus: activityStatus,
+      activityKind,
+      motionMapping: petMotionMapping,
+      replayId: companionReplayId,
+    });
+    void invoke("update_completion_pet_projection", { projection }).catch(() => {
+      setActivePetSummon((current) => current?.id === activePetSummon.id ? null : current);
+    });
+  }, [activePetSummon, activityKind, activityStatus, canUseNativeControls, companionReplayId, petMotionMapping]);
 
   useEffect(() => {
     if (!canUseNativeControls) {
@@ -778,7 +855,7 @@ const App = () => {
       cancelled = true;
       if (closeTimer !== null) window.clearTimeout(closeTimer);
     };
-  }, [canUseNativeControls, closedSurfaceHeight, nativeClosedSurfaceWidth, panelHeight, panelOpen, panelWindowWidth, renderPanel]);
+  }, [canUseNativeControls, closedSurfaceHeight, nativeClosedSurfaceWidth, panelFocusRequestId, panelHeight, panelOpen, panelWindowWidth, renderPanel]);
 
   useEffect(
     () => () => {
@@ -812,7 +889,7 @@ const App = () => {
       const target = sheetInnerRef.current?.querySelector<HTMLElement>("[data-panel-focus-target]");
       target?.focus({ preventScroll: true });
     });
-  }, [panelOpen, renderPanel, selectedSessionId, setupOpen]);
+  }, [activeMainTab, panelOpen, renderPanel, selectedSessionId, setupOpen]);
 
   const clearHoverOpenTimer = () => {
     if (hoverOpenTimerRef.current === null) return;
@@ -1019,7 +1096,8 @@ const App = () => {
     completionPetSummonGenerationRef.current += 1;
     setCompletionPetEnabled(enabled);
     writeCompletionPetEnabled(enabled);
-    if (!enabled && canUseNativeControls) {
+    if (!enabled && canUseNativeControls && activePetSummon?.purpose === "focus-completion") {
+      setActivePetSummon(null);
       void invoke("hide_completion_pet").catch(() => undefined);
     }
   };
@@ -1040,10 +1118,25 @@ const App = () => {
 
   const resetAllPomodoroCycle = () => {
     completionPetSummonGenerationRef.current += 1;
-    if (canUseNativeControls) {
+    if (canUseNativeControls && activePetSummon?.purpose === "focus-completion") {
+      setActivePetSummon(null);
       void invoke("hide_completion_pet").catch(() => undefined);
     }
     pomodoro.resetAll();
+  };
+
+  const showManualCompanion = async (requestedExerciseId?: MovementExerciseId): Promise<boolean> => {
+    const summon: ICompletionPetSummon = {
+      schemaVersion: 2,
+      id: `manual-companion-${Date.now()}${requestedExerciseId ? `-${requestedExerciseId}` : ""}`,
+      purpose: "manual-companion",
+      pet,
+      loadout: pet === "halo-bot" ? haloBotLoadout : undefined,
+      petSize: completionPetSize,
+      nextPhase: null,
+      ...(requestedExerciseId ? { requestedExerciseId } : {}),
+    };
+    return showCompanionSummon(summon);
   };
 
   const showPetPreview = async (): Promise<void> => {
@@ -1055,19 +1148,14 @@ const App = () => {
     setPetPreviewState("showing");
     setPetPreviewStatus("Showing Pet preview…");
     try {
-      const shown = await invoke<boolean>("show_completion_pet", {
-        summon: {
-          schemaVersion: 1,
-          id: `pet-preview-${Date.now()}`,
-          pet,
-          loadout: pet === "halo-bot" ? haloBotLoadout : undefined,
-          petSize: completionPetSize,
-          preview: true,
-          movementBreakEnabled: false,
-          nextPhase: "short-break",
-          title: "Pet preview",
-          actionLabel: "",
-        } satisfies ICompletionPetSummon,
+      const shown = await showCompanionSummon({
+        schemaVersion: 2,
+        id: `pet-preview-${Date.now()}`,
+        purpose: "setup-preview",
+        pet,
+        loadout: pet === "halo-bot" ? haloBotLoadout : undefined,
+        petSize: completionPetSize,
+        nextPhase: null,
       });
       setPetPreviewState(shown ? "shown" : "error");
       setPetPreviewStatus(shown ? "Pet preview shown" : "Pet preview was superseded");
@@ -1535,7 +1623,14 @@ const App = () => {
                   )}
                 </div>
               ) : activeMainTab === "pomodoro" ? (
-                <FocusToolsPanel pomodoro={pomodoro} stopwatch={stopwatch} onResetAllPomodoro={resetAllPomodoroCycle} />
+                <FocusToolsPanel
+                  nativeAvailable={canUseNativeControls}
+                  pomodoro={pomodoro}
+                  stopwatch={stopwatch}
+                  onResetAllPomodoro={resetAllPomodoroCycle}
+                  onShowCompanion={() => showManualCompanion()}
+                  onStartMovement={(exerciseId) => showManualCompanion(exerciseId)}
+                />
               ) : activeMainTab === "usage" ? (
                 <AgentUsageList usages={agentUsages} onRefresh={refreshAgentUsage} settings={usageSettings} onSettingsChange={updateUsageSettings} />
               ) : activeMainTab === "runtime" ? (

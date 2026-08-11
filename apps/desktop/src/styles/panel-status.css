@@ -121,7 +121,7 @@
 .sheet-header {
   width: 100%;
   box-sizing: border-box;
-  padding: 24px 0 12px;
+  padding: var(--closed-height, 36px) 0 12px;
   color: inherit;
 }
 

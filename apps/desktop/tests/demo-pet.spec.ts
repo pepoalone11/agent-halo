@@ -207,31 +207,31 @@ test("invalid motion mapping values normalize independently to truthful defaults
   await expect.poll(() => page.evaluate(() => window.localStorage.getItem("agent-halo.pet-motion-map"))).toContain('"schemaVersion":1');
 });
 
-test("Setup owns one global Completion Pet toggle", async ({ page }) => {
+test("Setup labels Completion Pet after Focus and keeps manual Pet available when automatic offers are Off", async ({ page }) => {
   await page.goto("/?demo=1&demoScenario=idle");
   await page.getByRole("button", { name: "Setup" }).click();
   await page.getByRole("tab", { name: "Pet" }).click();
-  const row = page.locator(".setup-row").filter({ has: page.locator(".setup-title", { hasText: /^Completion Pet$/ }) });
-  await expect(row).toContainText("Shows after a completed Focus");
-  const toggle = row.getByRole("switch", { name: "Disable completion pet" });
+  const row = page.locator(".setup-row").filter({ has: page.locator(".setup-title", { hasText: /^Completion Pet after Focus$/ }) });
+  await expect(row).toContainText("Shows automatically after a completed Focus");
+  const toggle = row.getByRole("switch", { name: "Disable completion pet after Focus" });
   await expect(toggle).toHaveAttribute("aria-checked", "true");
   await toggle.click();
-  await expect(row).toContainText("Off · uses a macOS notification");
-  await expect(row.getByRole("switch", { name: "Enable completion pet" })).toHaveText("Off");
-  await expect(row.getByRole("switch", { name: "Enable completion pet" })).toHaveAttribute("aria-checked", "false");
+  await expect(row).toContainText("Off · manual Pet remains available");
+  await expect(row.getByRole("switch", { name: "Enable completion pet after Focus" })).toHaveText("Off");
+  await expect(row.getByRole("switch", { name: "Enable completion pet after Focus" })).toHaveAttribute("aria-checked", "false");
   expect(await page.evaluate(() => window.localStorage.getItem("agent-halo.completion-pet-enabled"))).toBe("false");
 });
 
-test("Movement Break is opt-in with truthful local camera copy", async ({ page }) => {
+test("Offer movement after Focus is opt-in with truthful local camera copy", async ({ page }) => {
   await page.goto("/?demo=1&demoScenario=idle");
   await page.getByRole("button", { name: "Setup" }).click();
   await page.getByRole("tab", { name: "Pet" }).click();
-  const row = page.locator(".setup-row").filter({ has: page.locator(".setup-title", { hasText: /^Movement break$/ }) });
-  await expect(row).toContainText("Off · hidden from future completions");
-  const toggle = row.getByRole("switch", { name: "Enable movement break" });
+  const row = page.locator(".setup-row").filter({ has: page.locator(".setup-title", { hasText: /^Offer movement after Focus$/ }) });
+  await expect(row).toContainText("Off after Focus · manual Move remains available");
+  const toggle = row.getByRole("switch", { name: "Enable movement offer after Focus" });
   await expect(toggle).toHaveAttribute("aria-checked", "false");
   await toggle.click();
-  await expect(row).toContainText("Squats or reaches · choose after Focus");
+  await expect(row).toContainText("Squats or reaches appear with Focus completion");
   await expect(page.getByRole("note")).toContainText("Camera opens only after a specific exercise is clicked.");
   await expect(page.getByRole("note")).toContainText("Pose analysis stays on this Mac; no video or audio is saved.");
   await expect.poll(() => page.evaluate(() => window.localStorage.getItem("agent-halo.movement-break-enabled"))).toBe("true");
@@ -257,7 +257,7 @@ test("disabling future Movement Breaks does not dismiss an active completion Pet
   await page.goto("/?demo=1&demoScenario=idle");
   await page.getByRole("button", { name: "Setup" }).click();
   await page.getByRole("tab", { name: "Pet" }).click();
-  await page.getByRole("switch", { name: "Disable movement break" }).click();
+  await page.getByRole("switch", { name: "Disable movement offer after Focus" }).click();
   await expect.poll(() => page.evaluate(() => window.localStorage.getItem("agent-halo.movement-break-enabled"))).toBe("false");
   expect(await page.evaluate(() => (window as typeof window & { __movementSettingCalls: Array<{ command: string }> }).__movementSettingCalls.some((call) => call.command === "hide_completion_pet"))).toBe(false);
 });
@@ -295,7 +295,11 @@ test("Pet Setup persists floating size and shows an isolated native preview", as
   await expect(page.getByText("Pet preview shown")).toBeVisible();
   await expect(page.getByRole("button", { name: "Show Completion Pet preview" })).toHaveText(/Show again/);
   const show = await page.evaluate(() => (window as typeof window & { __petPreviewCalls: Array<{ command: string; args?: Record<string, unknown> }> }).__petPreviewCalls.find((call) => call.command === "show_completion_pet"));
-  expect(show?.args?.summon).toMatchObject({ pet: "halo-bot", loadout: "3051", petSize: "medium", preview: true, title: "Pet preview", actionLabel: "" });
+  expect(show?.args?.summon).toMatchObject({ schemaVersion: 2, purpose: "setup-preview", pet: "halo-bot", loadout: "3051", petSize: "medium", nextPhase: null });
+  expect(show?.args?.summon).not.toHaveProperty("preview");
+  expect(show?.args?.summon).not.toHaveProperty("title");
+  expect(show?.args?.summon).not.toHaveProperty("actionLabel");
+  expect(show?.args?.projection).toMatchObject({ schemaVersion: 2, summon: { purpose: "setup-preview", petSize: "medium", nextPhase: null } });
   await sizes.getByRole("radio", { name: "2×" }).click();
   await expect(page.getByText("Settings changed · update preview")).toBeVisible();
   const update = page.getByRole("button", { name: "Update Completion Pet preview" });
@@ -309,7 +313,7 @@ test("Pet Setup persists floating size and shows an isolated native preview", as
   await expect(updateHaloBot).toHaveText(/Update Pet/);
   await updateHaloBot.click();
   const updatedHaloBotShow = await page.evaluate(() => (window as typeof window & { __petPreviewCalls: Array<{ command: string; args?: Record<string, unknown> }> }).__petPreviewCalls.filter((call) => call.command === "show_completion_pet").pop());
-  expect(updatedHaloBotShow?.args?.summon).toMatchObject({ pet: "halo-bot", loadout: "3051", petSize: "small", preview: true });
+  expect(updatedHaloBotShow?.args?.summon).toMatchObject({ schemaVersion: 2, purpose: "setup-preview", pet: "halo-bot", loadout: "3051", petSize: "small", nextPhase: null });
 });
 
 test("every ActivityKind maps to one bounded signal group", async ({ page }) => {

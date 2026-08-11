@@ -277,8 +277,114 @@ test("natural Focus completion summons Pet once and cancels the delayed notifica
   const handoffCancel = calls.slice(0, showIndex).findLast((call) => call.command === "cancel_pomodoro_notification");
   expect(handoffCancel?.args).toMatchObject({ requestId: "agent-halo.pomodoro", handoffDeadlineMs: endsAt + 3_000 });
   const summon = calls[showIndex]?.args?.summon as Record<string, unknown>;
-  expect(summon).toMatchObject({ id: "pet-natural-focus", pet: "halo-bot", loadout: "3051", nextPhase: "short-break", actionLabel: "Start Short break" });
+  expect(summon).toMatchObject({ schemaVersion: 2, id: "pet-natural-focus", purpose: "focus-completion", pet: "halo-bot", loadout: "3051", movementBreakEnabled: false, nextPhase: "short-break" });
+  expect(summon).not.toHaveProperty("preview");
+  expect(summon).not.toHaveProperty("title");
+  expect(summon).not.toHaveProperty("actionLabel");
+  expect(calls[showIndex]?.args?.projection).toMatchObject({ schemaVersion: 2, summon: { id: "pet-natural-focus", purpose: "focus-completion", nextPhase: "short-break" } });
   expect(await page.evaluate((key) => JSON.parse(window.localStorage.getItem(key) ?? "null")?.phase, storageKey)).toBe("short-break");
+});
+
+test("natural Focus completion preserves a pinned manual companion and keeps the notification fallback", async ({ page }) => {
+  const endsAt = Date.now() + 1_000;
+  await page.addInitScript(([key, endsAt]) => {
+    window.localStorage.setItem(key, JSON.stringify({
+      schemaVersion: 2,
+      phase: "focus",
+      status: "running",
+      completedFocusSessions: 0,
+      phaseDurationMs: 60_000,
+      remainingMs: 60_000,
+      endsAt,
+      runId: "pinned-manual-focus",
+      notificationScheduled: false,
+      lastCompletion: null,
+    }));
+    const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
+    (window as typeof window & { __pinnedManualCalls: typeof calls }).__pinnedManualCalls = calls;
+    (window as typeof window & { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
+      invoke: async (command: string, args?: Record<string, unknown>) => {
+        calls.push({ command, args });
+        if (command === "notification_permission_state") return "authorized";
+        if (command === "show_completion_pet") return true;
+        if (command === "cancel_pomodoro_notification") return true;
+        if (command === "take_completion_pet_action") return null;
+        if (command === "notch_metrics") return [184, 36];
+        if (command === "set_keep_awake") return args?.active === true;
+        if (command === "agent_halo_mod_status") return ["", false];
+        return null;
+      },
+    };
+  }, [storageKey, endsAt] as const);
+
+  await page.goto("/?demo=1&demoScenario=idle");
+  await page.getByRole("tab", { name: "Focus" }).click();
+  await page.getByRole("tab", { name: "Move", exact: true }).click();
+  await page.getByRole("button", { name: "Show Pet" }).click();
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __pinnedManualCalls: Array<{ command: string }> }).__pinnedManualCalls.filter((call) => call.command === "show_completion_pet").length)).toBe(1);
+  await expect.poll(() => page.evaluate((key) => JSON.parse(window.localStorage.getItem(key) ?? "null")?.phase, storageKey)).toBe("short-break");
+
+  const calls = await page.evaluate(() => (window as typeof window & { __pinnedManualCalls: Array<{ command: string; args?: Record<string, unknown> }> }).__pinnedManualCalls);
+  const shows = calls.filter((call) => call.command === "show_completion_pet");
+  expect(shows).toHaveLength(1);
+  expect(shows[0]?.args?.summon).toMatchObject({ purpose: "manual-companion", nextPhase: null });
+  expect(calls.some((call) => call.command === "hide_completion_pet")).toBe(false);
+  expect(calls.some((call) => call.command === "cancel_pomodoro_notification" && call.args?.handoffDeadlineMs !== undefined)).toBe(false);
+  expect(calls.find((call) => call.command === "schedule_pomodoro_notification")?.args?.deadlineMs).toBe(endsAt + 5_000);
+});
+
+test("manual Hide dismissal clears the pin so the next natural Focus completion may summon", async ({ page }) => {
+  const endsAt = Date.now() + 1_000;
+  await page.addInitScript(([key, endsAt]) => {
+    window.localStorage.setItem(key, JSON.stringify({
+      schemaVersion: 2,
+      phase: "focus",
+      status: "running",
+      completedFocusSessions: 0,
+      phaseDurationMs: 60_000,
+      remainingMs: 60_000,
+      endsAt,
+      runId: "dismissed-manual-focus",
+      notificationScheduled: false,
+      lastCompletion: null,
+    }));
+    let pendingAction: Record<string, unknown> | null = null;
+    const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
+    (window as typeof window & { __dismissedManualCalls: typeof calls; __queuePetDismissal: (action: Record<string, unknown>) => void }).__dismissedManualCalls = calls;
+    (window as typeof window & { __queuePetDismissal: (action: Record<string, unknown>) => void }).__queuePetDismissal = (action) => { pendingAction = action; };
+    (window as typeof window & { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
+      invoke: async (command: string, args?: Record<string, unknown>) => {
+        calls.push({ command, args });
+        if (command === "notification_permission_state") return "authorized";
+        if (command === "show_completion_pet") return true;
+        if (command === "cancel_pomodoro_notification") return true;
+        if (command === "take_completion_pet_action") {
+          const action = pendingAction;
+          pendingAction = null;
+          return action;
+        }
+        if (command === "notch_metrics") return [184, 36];
+        if (command === "set_keep_awake") return args?.active === true;
+        if (command === "agent_halo_mod_status") return ["", false];
+        return null;
+      },
+    };
+  }, [storageKey, endsAt] as const);
+
+  await page.goto("/?demo=1&demoScenario=idle");
+  await page.getByRole("tab", { name: "Focus" }).click();
+  await page.getByRole("tab", { name: "Move", exact: true }).click();
+  await page.getByRole("button", { name: "Show Pet" }).click();
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __dismissedManualCalls: Array<{ command: string }> }).__dismissedManualCalls.filter((call) => call.command === "show_completion_pet").length)).toBe(1);
+  const manualId = await page.evaluate(() => {
+    const show = (window as typeof window & { __dismissedManualCalls: Array<{ command: string; args?: Record<string, unknown> }> }).__dismissedManualCalls.find((call) => call.command === "show_completion_pet");
+    return (show?.args?.summon as { id?: string } | undefined)?.id ?? "";
+  });
+  expect(manualId).not.toBe("");
+  await page.evaluate((summonId) => (window as typeof window & { __queuePetDismissal: (action: Record<string, unknown>) => void }).__queuePetDismissal({ action: "dismiss", summonId, nextPhase: null }), manualId);
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __dismissedManualCalls: Array<{ command: string }> }).__dismissedManualCalls.filter((call) => call.command === "show_completion_pet").length)).toBe(2);
+  const shows = await page.evaluate(() => (window as typeof window & { __dismissedManualCalls: Array<{ command: string; args?: Record<string, unknown> }> }).__dismissedManualCalls.filter((call) => call.command === "show_completion_pet"));
+  expect(shows[1]?.args?.summon).toMatchObject({ purpose: "focus-completion", id: "dismissed-manual-focus" });
 });
 
 test("disabled Completion Pet keeps the exact-deadline notification path and never summons", async ({ page }) => {
@@ -471,7 +577,7 @@ test("turning Pet off after the Focus deadline preserves the delayed fallback", 
   await expect.poll(() => page.evaluate(() => (window as typeof window & { __petToggleRaceCalls: string[] }).__petToggleRaceCalls.includes("schedule_pomodoro_notification"))).toBe(true);
   await page.getByRole("button", { name: "Setup" }).click();
   await page.getByRole("tab", { name: "Pet" }).click();
-  const toggle = page.getByRole("switch", { name: "Disable completion pet" });
+  const toggle = page.getByRole("switch", { name: "Disable completion pet after Focus" });
   await toggle.evaluate((element, deadline) => {
     (window as typeof window & { __setPetRaceNow: (value: number) => void }).__setPetRaceNow(deadline + 100);
     (element as HTMLButtonElement).click();
@@ -525,13 +631,13 @@ test("disabling Pet while native show is pending cannot cancel fallback or resur
   await expect.poll(() => page.evaluate(() => (window as typeof window & { __petShowRaceCalls: string[] }).__petShowRaceCalls.includes("show_completion_pet"))).toBe(true);
   await page.getByRole("button", { name: "Setup" }).click();
   await page.getByRole("tab", { name: "Pet" }).click();
-  await page.getByRole("switch", { name: "Disable completion pet" }).click();
+  await page.getByRole("switch", { name: "Disable completion pet after Focus" }).click();
   await page.evaluate(() => (window as typeof window & { __resolvePetShow: () => void }).__resolvePetShow());
   await page.waitForTimeout(250);
   const calls = await page.evaluate(() => (window as typeof window & { __petShowRaceCalls: string[] }).__petShowRaceCalls);
   expect(calls.filter((command) => command === "cancel_pomodoro_notification")).toHaveLength(1);
   expect(calls.filter((command) => command === "schedule_pomodoro_notification")).toHaveLength(2);
-  expect(calls.filter((command) => command === "hide_completion_pet").length).toBeGreaterThanOrEqual(2);
+  expect(calls.filter((command) => command === "hide_completion_pet")).toHaveLength(1);
 });
 
 test("Pet handoff that resolves after its safety window hides without cancelling fallback", async ({ page }) => {

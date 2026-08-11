@@ -37,7 +37,7 @@ truthful Letta state -> data-state / status / copy / Signal V4 / Keep awake
 user motion mapping  -> data-motion / body strip / body playback only
 ```
 
-Never use the motion mapping to change status priority, accessibility copy, Pomodoro ownership, Keep display awake, or Signal V4. Completion Pet is a separate Pomodoro projection and keeps its own Working presentation.
+Never use the motion mapping to change status priority, accessibility copy, Pomodoro ownership, Keep display awake, or Signal V4. Every Pet purpose is a separate main-renderer projection; the manual companion mirrors that projection and Signal V4 without owning Pomodoro, while Focus completion retains its completion presentation.
 
 ## Lane A: create a new Pet identity
 

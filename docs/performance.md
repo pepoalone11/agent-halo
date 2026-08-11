@@ -21,6 +21,8 @@ The browser/native timings above are bounded observations from Mahiro's Mac. The
 
 ## Refactor workloads and budgets
 
+The revision entries below are historical measurement/provenance records, not the canonical behavior contract. Current Pet/Movement behavior is owned by the schema-v2 TypeScript/Rust types and state/actions, with `docs/pet.md` and `docs/movement-break.md` as active contract owners.
+
 `pnpm test:performance` builds the desktop and checks three evidence layers:
 
 1. **Bundle budget** — no regression beyond the baseline CSS/dist sizes, a small JavaScript cushion, and no legacy session-cat files in `dist/`.
@@ -70,6 +72,8 @@ The `stopwatch-history-v1` revision raises the primary CSS gzip ceiling to 12,20
 The `movement-exercises-v2` revision raises the primary CSS gzip ceiling from 12,200 to 12,250 bytes while keeping JavaScript gzip at 101,000 bytes. The 50-byte allowance covers the camera-free two-exercise Pet chooser and exercise-specific progress labels for Squat and Overhead Reach; the shared camera, bundled MediaPipe runtime/model ceiling, native attempt token, and Pomodoro action contract remain unchanged. The candidate measures 12,206 bytes CSS gzip and 100,678 bytes JavaScript gzip.
 
 The `services-process-control-v1` revision raises the primary CSS gzip ceiling from 12,250 to 12,500 bytes and JavaScript gzip from 101,000 to 101,750 bytes. The bounded allowance covers one-at-a-time service disclosures, native process detail presentation, accessible Stop/Force kill confirmations and result states, plus process-identity-aware renderer coordination. The measured candidate is 12,402 bytes CSS gzip and 101,658 bytes JavaScript gzip. PID/start/UID/endpoint revalidation, signaling, protected-process policy, and capability expiry remain native and do not enter the web bundle; command arguments and environment values remain excluded.
+
+The `interactive-pet-v2` revision raises the primary CSS gzip ceiling from 12,500 to 12,750 bytes and JavaScript gzip from 101,750 to 104,500 bytes. The bounded allowance covers the third Focus `Move` tool, schema-v2 purpose/projection synchronization, manual companion radial actions, exact-exercise launch handoff, and replay-safe Done-to-current-state choreography while reusing the existing five body motions, Signal V4, and code-split pose runtime. The final measured candidate is 12,668 bytes CSS gzip and 104,319 bytes JavaScript gzip after the narrow-tab, launch-feedback, atomic-first-frame, and dismissal-ownership corrections. Core `dist/`, mascot, MediaPipe runtime, local-camera privacy, and legacy-asset constraints remain unchanged.
 
 The low-risk bridge refactor's three-run median measured event duration `603.06ms → 574.18ms` (−4.79%) and throughput `33,164 → 34,832 events/s` (+5.03%) for 20,000 deterministic events. Startup stayed effectively flat; synchronous NDJSON durability and event ordering remain unchanged.
 

@@ -10,6 +10,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tauri::{AppHandle, Manager, WebviewWindow};
 
 const PET_POSITION_FILE: &str = "pet-window-state.json";
@@ -61,26 +62,191 @@ const HALO_BOT_LOADOUTS: &[&str] = &[
     "3051", "1462", "5324", "c160", "2515", "4232", "d351", "6124", "9132", "f061",
 ];
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+const PET_SESSION_STATUSES: &[&str] =
+    &["idle", "working", "attention", "inactive", "done", "error"];
+const PET_ACTIVITY_KINDS: &[&str] = &[
+    "session",
+    "thinking",
+    "planning",
+    "tool",
+    "shell",
+    "editing",
+    "delegating",
+    "visual",
+    "memory",
+    "asking",
+    "skill",
+    "goal",
+    "compact",
+    "model",
+    "attention",
+    "done",
+    "error",
+    "bridge",
+];
+const PET_MOTIONS: &[&str] = &["idle", "working", "attention", "done", "error"];
+
+fn default_pet_data_state() -> String {
+    "idle".to_string()
+}
+
+fn missing_pet_next_phase() -> Value {
+    Value::Bool(false)
+}
+
+fn normalize_pet_motion(value: &str, fallback: &str) -> String {
+    PET_MOTIONS
+        .contains(&value)
+        .then(|| value.to_string())
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn pet_data_state(session_status: &str, activity_kind: &str) -> &'static str {
+    if session_status == "error" || activity_kind == "error" {
+        "error"
+    } else if session_status == "attention"
+        || activity_kind == "attention"
+        || activity_kind == "asking"
+    {
+        "attention"
+    } else if session_status == "done" || activity_kind == "done" {
+        "done"
+    } else if session_status == "working" {
+        "working"
+    } else {
+        "idle"
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionPetMotionMapping {
+    idle: String,
+    working: String,
+    attention: String,
+    done: String,
+    error: String,
+}
+
+impl Default for CompletionPetMotionMapping {
+    fn default() -> Self {
+        Self {
+            idle: "idle".to_string(),
+            working: "working".to_string(),
+            attention: "attention".to_string(),
+            done: "done".to_string(),
+            error: "error".to_string(),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for CompletionPetMotionMapping {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        let candidate = value.get("mapping").unwrap_or(&value);
+        let object = candidate.as_object();
+        let read = |key: &str, fallback: &str| {
+            object
+                .and_then(|object| object.get(key))
+                .and_then(Value::as_str)
+                .unwrap_or(fallback)
+                .to_string()
+        };
+        Ok(Self {
+            idle: read("idle", "idle"),
+            working: read("working", "working"),
+            attention: read("attention", "attention"),
+            done: read("done", "done"),
+            error: read("error", "error"),
+        })
+    }
+}
+
+impl CompletionPetMotionMapping {
+    fn normalized(self) -> Self {
+        Self {
+            idle: normalize_pet_motion(&self.idle, "idle"),
+            working: normalize_pet_motion(&self.working, "working"),
+            attention: normalize_pet_motion(&self.attention, "attention"),
+            done: normalize_pet_motion(&self.done, "done"),
+            error: normalize_pet_motion(&self.error, "error"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CompletionPetSummon {
     schema_version: u8,
     id: String,
+    purpose: String,
     pet: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     loadout: Option<String>,
     pet_size: String,
-    preview: bool,
-    #[serde(default)]
-    movement_break_enabled: bool,
-    next_phase: String,
-    title: String,
-    action_label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    movement_break_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    requested_exercise_id: Option<String>,
+    next_phase: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for CompletionPetSummon {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct RawCompletionPetSummon {
+            schema_version: u8,
+            id: String,
+            purpose: String,
+            pet: String,
+            #[serde(default)]
+            loadout: Option<String>,
+            pet_size: String,
+            #[serde(default)]
+            movement_break_enabled: Option<bool>,
+            #[serde(default)]
+            requested_exercise_id: Option<String>,
+            #[serde(default = "missing_pet_next_phase")]
+            next_phase: Value,
+        }
+
+        let raw = RawCompletionPetSummon::deserialize(deserializer)?;
+        let next_phase = match raw.next_phase {
+            Value::Bool(false) => {
+                return Err(<D::Error as serde::de::Error>::missing_field("nextPhase"));
+            }
+            Value::Null => None,
+            Value::String(value) => Some(value),
+            _ => {
+                return Err(<D::Error as serde::de::Error>::custom(
+                    "Completion Pet nextPhase must be a string or null",
+                ));
+            }
+        };
+        Ok(Self {
+            schema_version: raw.schema_version,
+            id: raw.id,
+            purpose: raw.purpose,
+            pet: raw.pet,
+            loadout: raw.loadout,
+            pet_size: raw.pet_size,
+            movement_break_enabled: raw.movement_break_enabled,
+            requested_exercise_id: raw.requested_exercise_id,
+            next_phase,
+        })
+    }
 }
 
 impl CompletionPetSummon {
-    fn validate(self) -> Result<Self, String> {
-        if self.schema_version != 1 {
+    fn validate(mut self) -> Result<Self, String> {
+        if self.schema_version != 2 {
             return Err("Unsupported Completion Pet summon schema".to_string());
         }
         if self.id.trim().is_empty() || self.id.len() > 256 {
@@ -90,12 +256,10 @@ impl CompletionPetSummon {
             return Err("Completion Pet selection is invalid".to_string());
         }
         if self.pet == "halo-bot" {
-            if !self
-                .loadout
-                .as_deref()
-                .is_some_and(|loadout| HALO_BOT_LOADOUTS.contains(&loadout))
-            {
-                return Err("Halo Bot loadout is invalid".to_string());
+            if let Some(loadout) = self.loadout.as_deref() {
+                if !HALO_BOT_LOADOUTS.contains(&loadout) {
+                    return Err("Halo Bot loadout is invalid".to_string());
+                }
             }
         } else if self.loadout.is_some() {
             return Err("Only Halo Bot accepts a loadout".to_string());
@@ -103,39 +267,98 @@ impl CompletionPetSummon {
         if !matches!(self.pet_size.as_str(), "small" | "medium" | "large") {
             return Err("Completion Pet size is invalid".to_string());
         }
-        if self.preview {
-            if self.title != "Pet preview"
-                || !self.action_label.is_empty()
-                || self.movement_break_enabled
-            {
-                return Err("Completion Pet preview copy is invalid".to_string());
+        match self.purpose.as_str() {
+            "focus-completion" => {
+                if self.requested_exercise_id.is_some() {
+                    return Err("Focus Completion Pet cannot request a manual exercise".to_string());
+                }
+                if self.movement_break_enabled.is_none() {
+                    return Err("Focus Completion Pet movement offer is missing".to_string());
+                }
+                if !matches!(
+                    self.next_phase.as_deref(),
+                    Some("short-break" | "long-break")
+                ) {
+                    return Err("Focus Completion Pet requires a prepared break phase".to_string());
+                }
             }
-            return Ok(self);
-        }
-        let expected_action = match self.next_phase.as_str() {
-            "short-break" => "Start Short break",
-            "long-break" => "Start Long break",
-            _ => return Err("Completion Pet requires a prepared break phase".to_string()),
-        };
-        if self.title != "Focus complete" || self.action_label != expected_action {
-            return Err("Completion Pet copy does not match the prepared break".to_string());
+            "manual-companion" => {
+                if self.next_phase.is_some() {
+                    return Err("Companion Pet must not carry a prepared break phase".to_string());
+                }
+                self.movement_break_enabled = None;
+                if self
+                    .requested_exercise_id
+                    .as_deref()
+                    .is_some_and(|exercise| !matches!(exercise, "squat" | "overhead-reach"))
+                {
+                    return Err("Manual Companion exercise request is invalid".to_string());
+                }
+            }
+            "setup-preview" => {
+                if self.next_phase.is_some() {
+                    return Err("Companion Pet must not carry a prepared break phase".to_string());
+                }
+                if self.requested_exercise_id.is_some() {
+                    return Err("Setup preview cannot request an exercise".to_string());
+                }
+                self.movement_break_enabled = None;
+            }
+            _ => return Err("Completion Pet purpose is invalid".to_string()),
         }
         Ok(self)
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionPetProjection {
+    schema_version: u8,
+    summon: CompletionPetSummon,
+    session_status: String,
+    activity_kind: String,
+    #[serde(default = "default_pet_data_state")]
+    data_state: String,
+    #[serde(default)]
+    motion_mapping: CompletionPetMotionMapping,
+    replay_id: String,
+}
+
+impl CompletionPetProjection {
+    fn validate(mut self) -> Result<Self, String> {
+        if self.schema_version != 2 {
+            return Err("Unsupported Completion Pet projection schema".to_string());
+        }
+        self.summon = self.summon.validate()?;
+        if !PET_SESSION_STATUSES.contains(&self.session_status.as_str()) {
+            return Err("Completion Pet session status is invalid".to_string());
+        }
+        if !PET_ACTIVITY_KINDS.contains(&self.activity_kind.as_str()) {
+            return Err("Completion Pet activity kind is invalid".to_string());
+        }
+        if self.replay_id.trim().is_empty() || self.replay_id.len() > 256 {
+            return Err("Completion Pet replay id is invalid".to_string());
+        }
+        self.data_state = pet_data_state(&self.session_status, &self.activity_kind).to_string();
+        self.motion_mapping = self.motion_mapping.normalized();
+        Ok(self)
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompletionPetSnapshot {
     summon: Option<CompletionPetSummon>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    projection: Option<CompletionPetProjection>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CompletionPetActionRequest {
     action: String,
     summon_id: String,
-    next_phase: String,
+    next_phase: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -150,7 +373,7 @@ pub(crate) struct PetPositionPreference {
 
 #[derive(Default)]
 pub struct CompletionPetWindowState {
-    summon: Mutex<Option<CompletionPetSummon>>,
+    snapshot: Mutex<CompletionPetSnapshot>,
     pending_action: Mutex<Option<CompletionPetActionRequest>>,
     movement_attempt_summon_id: Mutex<Option<String>>,
     position: Mutex<Option<PetPositionPreference>>,
@@ -173,15 +396,63 @@ impl CompletionPetWindowState {
     }
 
     fn set_summon(&self, summon: Option<CompletionPetSummon>) {
-        if let Ok(mut current) = self.summon.lock() {
-            *current = summon;
+        if let Ok(mut current) = self.snapshot.lock() {
+            current.summon = summon;
+            current.projection = None;
         }
     }
 
-    fn snapshot(&self) -> CompletionPetSnapshot {
-        CompletionPetSnapshot {
-            summon: self.summon.lock().ok().and_then(|value| value.clone()),
+    #[cfg(test)]
+    fn set_projection(&self, projection: Option<CompletionPetProjection>) {
+        if let Ok(mut current) = self.snapshot.lock() {
+            current.projection = projection;
         }
+    }
+
+    #[cfg(test)]
+    fn projection(&self) -> Option<CompletionPetProjection> {
+        self.snapshot
+            .lock()
+            .ok()
+            .and_then(|value| value.projection.clone())
+    }
+
+    fn snapshot(&self) -> CompletionPetSnapshot {
+        self.snapshot
+            .lock()
+            .map(|value| value.clone())
+            .unwrap_or_default()
+    }
+
+    fn set_snapshot(
+        &self,
+        summon: CompletionPetSummon,
+        projection: CompletionPetProjection,
+    ) -> Result<(), String> {
+        let mut current = self
+            .snapshot
+            .lock()
+            .map_err(|_| "Completion Pet snapshot state is unavailable".to_string())?;
+        current.summon = Some(summon);
+        current.projection = Some(projection);
+        Ok(())
+    }
+
+    fn update_projection(&self, projection: CompletionPetProjection) -> Result<(), String> {
+        let projection = projection.validate()?;
+        let mut current = self
+            .snapshot
+            .lock()
+            .map_err(|_| "Completion Pet snapshot state is unavailable".to_string())?;
+        let current_summon = current
+            .summon
+            .as_ref()
+            .ok_or_else(|| "Completion Pet has no active summon".to_string())?;
+        if &projection.summon != current_summon {
+            return Err("Completion Pet projection summon is no longer current".to_string());
+        }
+        current.projection = Some(projection);
+        Ok(())
     }
 
     fn begin_operation(&self) -> u64 {
@@ -198,6 +469,26 @@ impl CompletionPetWindowState {
         if let Ok(mut pending) = self.pending_action.lock() {
             *pending = None;
         }
+    }
+
+    fn queue_action(&self, action: CompletionPetActionRequest) -> Result<(), String> {
+        let mut pending = self
+            .pending_action
+            .lock()
+            .map_err(|_| "Completion Pet action state is unavailable".to_string())?;
+        if pending.is_some() {
+            return Err("Completion Pet action is already pending".to_string());
+        }
+        *pending = Some(action);
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn pending_action(&self) -> Option<CompletionPetActionRequest> {
+        self.pending_action
+            .lock()
+            .ok()
+            .and_then(|value| value.clone())
     }
 
     fn clear_movement_attempt(&self) {
@@ -240,7 +531,14 @@ impl CompletionPetWindowState {
 
     pub(crate) fn movement_summon_matches(&self, summon_id: &str) -> bool {
         self.snapshot().summon.is_some_and(|summon| {
-            !summon.preview && summon.movement_break_enabled && summon.id == summon_id
+            if summon.id != summon_id {
+                return false;
+            }
+            match summon.purpose.as_str() {
+                "manual-companion" => true,
+                "focus-completion" => summon.movement_break_enabled == Some(true),
+                _ => false,
+            }
         })
     }
 
@@ -265,6 +563,43 @@ impl CompletionPetWindowState {
 
     fn is_move_revision_current(&self, revision: u64) -> bool {
         self.move_revision.load(Ordering::SeqCst) == revision
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CompletionPetActionEffect {
+    QueueAndHide,
+    QueueAndKeepVisible,
+}
+
+fn completion_pet_action_effect(
+    summon: &CompletionPetSummon,
+    action: &str,
+    movement_attempt_matches: bool,
+) -> Result<CompletionPetActionEffect, String> {
+    match summon.purpose.as_str() {
+        "focus-completion" => match action {
+            "start-break" => Ok(CompletionPetActionEffect::QueueAndHide),
+            "movement-complete" => {
+                if summon.movement_break_enabled != Some(true) {
+                    return Err("Movement Break is disabled for this completion".to_string());
+                }
+                if !movement_attempt_matches {
+                    return Err("Movement Break attempt does not match this completion".to_string());
+                }
+                Ok(CompletionPetActionEffect::QueueAndHide)
+            }
+            _ => Err("Unsupported Completion Pet action for focus completion".to_string()),
+        },
+        "manual-companion" => {
+            if action == "open-focus" {
+                Ok(CompletionPetActionEffect::QueueAndKeepVisible)
+            } else {
+                Err("Unsupported Completion Pet action for manual companion".to_string())
+            }
+        }
+        "setup-preview" => Err("Setup preview cannot queue a Completion Pet action".to_string()),
+        _ => Err("Completion Pet purpose is invalid".to_string()),
     }
 }
 
@@ -669,9 +1004,14 @@ pub fn show_completion_pet(
     window: WebviewWindow,
     state: tauri::State<'_, CompletionPetWindowState>,
     summon: CompletionPetSummon,
+    projection: CompletionPetProjection,
 ) -> Result<bool, String> {
     validate_window(&window, "main")?;
     let summon = summon.validate()?;
+    let projection = projection.validate()?;
+    if projection.summon != summon {
+        return Err("Completion Pet initial projection does not match its summon".to_string());
+    }
     let _surface_guard = state.lock_surface()?;
     let revision = state.begin_operation();
     let pet_window = window
@@ -680,7 +1020,7 @@ pub fn show_completion_pet(
         .ok_or_else(|| "Completion Pet window is unavailable".to_string())?;
     state.clear_pending_action();
     state.clear_movement_attempt();
-    state.set_summon(Some(summon));
+    state.set_snapshot(summon, projection)?;
     if let Err(error) = platform::position_for_show(&pet_window, &state) {
         if state.is_current(revision) {
             state.set_summon(None);
@@ -727,6 +1067,17 @@ pub fn completion_pet_state(
 ) -> Result<CompletionPetSnapshot, String> {
     validate_window(&window, "pet")?;
     Ok(state.snapshot())
+}
+
+#[tauri::command]
+pub fn update_completion_pet_projection(
+    window: WebviewWindow,
+    state: tauri::State<'_, CompletionPetWindowState>,
+    projection: CompletionPetProjection,
+) -> Result<(), String> {
+    validate_window(&window, "main")?;
+    let _surface_guard = state.lock_surface()?;
+    state.update_projection(projection)
 }
 
 #[tauri::command]
@@ -807,6 +1158,7 @@ pub fn hide_completion_pet(
         return Err("Completion Pet hide requires an Agent Halo window".to_string());
     }
     let _surface_guard = state.lock_surface()?;
+    let dismissed_summon = state.snapshot().summon;
     state.begin_operation();
     let pet_window = window
         .app_handle()
@@ -814,6 +1166,15 @@ pub fn hide_completion_pet(
         .ok_or_else(|| "Completion Pet window is unavailable".to_string())?;
     state.set_summon(None);
     state.clear_pending_action();
+    if window.label() == "pet" {
+        if let Some(summon) = dismissed_summon {
+            state.queue_action(CompletionPetActionRequest {
+                action: "dismiss".to_string(),
+                summon_id: summon.id,
+                next_phase: None,
+            })?;
+        }
+    }
     state.clear_movement_attempt();
     let _ = platform::position_for_show(&pet_window, &state);
     state.set_surface_mode(CompletionPetSurfaceMode::Collapsed);
@@ -831,39 +1192,24 @@ pub fn submit_completion_pet_action(
 ) -> Result<(), String> {
     validate_window(&window, "pet")?;
     let _surface_guard = state.lock_surface()?;
-    if action != "start-break" && action != "movement-complete" {
-        return Err("Unsupported Completion Pet action".to_string());
-    }
     let summon = state
         .snapshot()
         .summon
         .ok_or_else(|| "Completion Pet has no active summon".to_string())?;
-    if summon.preview {
-        return Err("Completion Pet preview cannot start a Pomodoro break".to_string());
+    let effect =
+        completion_pet_action_effect(&summon, &action, state.movement_attempt_matches(&summon.id))?;
+    let request = CompletionPetActionRequest {
+        action,
+        summon_id: summon.id.clone(),
+        next_phase: summon.next_phase.clone(),
+    };
+    if effect == CompletionPetActionEffect::QueueAndKeepVisible {
+        return state.queue_action(request);
     }
-    if action == "movement-complete" {
-        if !summon.movement_break_enabled {
-            return Err("Movement Break is disabled for this completion".to_string());
-        }
-        if !state.movement_attempt_matches(&summon.id) {
-            return Err("Movement Break attempt does not match this completion".to_string());
-        }
-    }
+
     state.begin_operation();
     state.set_surface_mode(CompletionPetSurfaceMode::Collapsed);
-    let mut pending = state
-        .pending_action
-        .lock()
-        .map_err(|_| "Completion Pet action state is unavailable".to_string())?;
-    if pending.is_some() {
-        return Err("Completion Pet action is already pending".to_string());
-    }
-    *pending = Some(CompletionPetActionRequest {
-        action,
-        summon_id: summon.id,
-        next_phase: summon.next_phase,
-    });
-    drop(pending);
+    state.queue_action(request)?;
     state.set_summon(None);
     state.clear_movement_attempt();
     let _ = window.set_focusable(false);
@@ -974,21 +1320,142 @@ mod tests {
         );
     }
 
-    #[test]
-    fn summon_validation_accepts_only_supported_pets_and_loadouts() {
-        let valid = CompletionPetSummon {
-            schema_version: 1,
-            id: "focus-1".to_string(),
+    fn focus_summon(id: &str, movement_break_enabled: bool) -> CompletionPetSummon {
+        CompletionPetSummon {
+            schema_version: 2,
+            id: id.to_string(),
+            purpose: "focus-completion".to_string(),
             pet: "haloform".to_string(),
             loadout: None,
             pet_size: "large".to_string(),
-            preview: false,
-            movement_break_enabled: false,
-            next_phase: "short-break".to_string(),
-            title: "Focus complete".to_string(),
-            action_label: "Start Short break".to_string(),
-        };
-        assert!(valid.clone().validate().is_ok());
+            movement_break_enabled: Some(movement_break_enabled),
+            requested_exercise_id: None,
+            next_phase: Some("short-break".to_string()),
+        }
+    }
+
+    fn manual_summon(id: &str) -> CompletionPetSummon {
+        CompletionPetSummon {
+            schema_version: 2,
+            id: id.to_string(),
+            purpose: "manual-companion".to_string(),
+            pet: "haloform".to_string(),
+            loadout: None,
+            pet_size: "large".to_string(),
+            movement_break_enabled: None,
+            requested_exercise_id: None,
+            next_phase: None,
+        }
+    }
+
+    fn setup_preview_summon(id: &str) -> CompletionPetSummon {
+        CompletionPetSummon {
+            schema_version: 2,
+            id: id.to_string(),
+            purpose: "setup-preview".to_string(),
+            pet: "haloform".to_string(),
+            loadout: None,
+            pet_size: "large".to_string(),
+            movement_break_enabled: None,
+            requested_exercise_id: None,
+            next_phase: None,
+        }
+    }
+
+    fn projection_for(
+        summon: CompletionPetSummon,
+        session_status: &str,
+        activity_kind: &str,
+    ) -> CompletionPetProjection {
+        CompletionPetProjection {
+            schema_version: 2,
+            summon,
+            session_status: session_status.to_string(),
+            activity_kind: activity_kind.to_string(),
+            data_state: "idle".to_string(),
+            motion_mapping: CompletionPetMotionMapping {
+                idle: "invalid".to_string(),
+                working: "working".to_string(),
+                attention: "attention".to_string(),
+                done: "done".to_string(),
+                error: "error".to_string(),
+            },
+            replay_id: "replay-1".to_string(),
+        }
+    }
+
+    #[test]
+    fn summon_validation_accepts_all_purpose_schemas_and_rejects_legacy_schema() {
+        assert_eq!(
+            focus_summon("focus-1", false).validate().unwrap().purpose,
+            "focus-completion"
+        );
+        assert_eq!(
+            manual_summon("manual-1").validate().unwrap().purpose,
+            "manual-companion"
+        );
+        assert_eq!(
+            setup_preview_summon("preview-1")
+                .validate()
+                .unwrap()
+                .purpose,
+            "setup-preview"
+        );
+        assert!(CompletionPetSummon {
+            schema_version: 1,
+            ..focus_summon("legacy", false)
+        }
+        .validate()
+        .is_err());
+        assert!(CompletionPetSummon {
+            purpose: "unknown-purpose".to_string(),
+            ..focus_summon("unknown", false)
+        }
+        .validate()
+        .is_err());
+        assert!(CompletionPetSummon {
+            next_phase: Some("short-break".to_string()),
+            ..manual_summon("manual-phase")
+        }
+        .validate()
+        .is_err());
+        assert!(CompletionPetSummon {
+            requested_exercise_id: Some("squat".to_string()),
+            ..manual_summon("manual-squat")
+        }
+        .validate()
+        .is_ok());
+        assert!(CompletionPetSummon {
+            requested_exercise_id: Some("jumping-jack".to_string()),
+            ..manual_summon("manual-invalid-exercise")
+        }
+        .validate()
+        .is_err());
+        assert!(CompletionPetSummon {
+            movement_break_enabled: None,
+            ..focus_summon("missing-offer", false)
+        }
+        .validate()
+        .is_err());
+        let manual_json = r#"{
+            "schemaVersion": 2,
+            "id": "manual-json",
+            "purpose": "manual-companion",
+            "pet": "haloform",
+            "petSize": "large",
+            "nextPhase": null
+        }"#;
+        assert!(serde_json::from_str::<CompletionPetSummon>(manual_json)
+            .unwrap()
+            .validate()
+            .is_ok());
+        let missing_next_phase = manual_json.replace(",\n            \"nextPhase\": null", "");
+        assert!(serde_json::from_str::<CompletionPetSummon>(&missing_next_phase).is_err());
+    }
+
+    #[test]
+    fn summon_validation_preserves_pet_and_loadout_allowlists() {
+        let valid = focus_summon("focus-1", false);
         assert!(CompletionPetSummon {
             pet: "halo-bot".to_string(),
             loadout: Some("3051".to_string()),
@@ -1017,46 +1484,47 @@ mod tests {
             .validate()
             .is_err());
         }
-        assert!(CompletionPetSummon {
-            action_label: "Start Long break".to_string(),
-            ..valid.clone()
-        }
-        .validate()
-        .is_err());
-        assert!(CompletionPetSummon {
-            movement_break_enabled: true,
-            ..valid.clone()
-        }
-        .validate()
-        .is_ok());
-        assert!(CompletionPetSummon {
-            preview: true,
-            movement_break_enabled: true,
-            title: "Pet preview".to_string(),
-            action_label: String::new(),
-            ..valid
-        }
-        .validate()
-        .is_err());
     }
 
     #[test]
-    fn summon_deserialization_ignores_legacy_visual_fields() {
+    fn summon_deserialization_ignores_legacy_copy_fields_but_validates_purpose() {
+        let summon: CompletionPetSummon = serde_json::from_str(
+            r#"{
+                "schemaVersion": 2,
+                "id": "focus-1",
+                "purpose": "focus-completion",
+                "pet": "haloform",
+                "petSize": "large",
+                "movementBreakEnabled": true,
+                "nextPhase": "short-break",
+                "preview": true,
+                "title": "Pet preview",
+                "actionLabel": ""
+            }"#,
+        )
+        .expect("legacy copy fields should be ignored");
+        assert!(summon.validate().is_ok());
+    }
+
+    #[test]
+    fn summon_deserialization_rejects_the_legacy_schema_even_with_legacy_visual_fields() {
         let summon: CompletionPetSummon = serde_json::from_str(
             r#"{
                 "schemaVersion": 1,
                 "id": "focus-1",
+                "purpose": "focus-completion",
                 "pet": "haloform",
                 "petSize": "large",
                 "visual": "ember-starling",
-                "preview": false,
+                "movementBreakEnabled": true,
                 "nextPhase": "short-break",
+                "preview": false,
                 "title": "Focus complete",
                 "actionLabel": "Start Short break"
             }"#,
         )
-        .expect("legacy visual field should be ignored");
-        assert!(summon.validate().is_ok());
+        .expect("legacy visual fields should still be ignored by deserialization");
+        assert!(summon.validate().is_err());
     }
 
     #[test]
@@ -1079,31 +1547,199 @@ mod tests {
     }
 
     #[test]
-    fn movement_session_must_match_the_active_enabled_summon() {
+    fn movement_activation_allows_only_enabled_focus_or_manual_companions() {
         let state = CompletionPetWindowState::default();
-        state.set_summon(Some(CompletionPetSummon {
-            schema_version: 1,
-            id: "focus-movement".to_string(),
-            pet: "haloform".to_string(),
-            loadout: None,
-            pet_size: "large".to_string(),
-            preview: false,
-            movement_break_enabled: true,
-            next_phase: "short-break".to_string(),
-            title: "Focus complete".to_string(),
-            action_label: "Start Short break".to_string(),
-        }));
+        state.set_summon(Some(focus_summon("focus-movement", true)));
         assert!(state.movement_summon_matches("focus-movement"));
         assert!(!state.movement_summon_matches("another-focus"));
+        state.set_summon(Some(focus_summon("focus-disabled", false)));
+        assert!(!state.movement_summon_matches("focus-disabled"));
+        state.set_summon(Some(manual_summon("manual-movement")));
+        assert!(state.movement_summon_matches("manual-movement"));
+        state.set_summon(Some(setup_preview_summon("preview-movement")));
+        assert!(!state.movement_summon_matches("preview-movement"));
+    }
+
+    #[test]
+    fn movement_attempt_remains_exactly_bound_to_the_current_summon() {
+        let state = CompletionPetWindowState::default();
+        state.set_summon(Some(focus_summon("focus-movement", true)));
         state
             .set_movement_attempt(Some("focus-movement".to_string()))
             .unwrap();
         assert!(state.movement_attempt_matches("focus-movement"));
         assert!(!state.movement_attempt_matches("another-focus"));
+        state.set_summon(Some(focus_summon("new-focus", true)));
+        assert!(state.movement_attempt_matches("focus-movement"));
+        assert!(!state.movement_summon_matches("focus-movement"));
+        assert!(!state.movement_attempt_matches("new-focus"));
         state.clear_movement_attempt();
         assert!(!state.movement_attempt_matches("focus-movement"));
-        state.set_summon(None);
-        assert!(!state.movement_summon_matches("focus-movement"));
+    }
+
+    #[test]
+    fn action_allowlist_keeps_manual_open_focus_visible_and_never_queues_completion() {
+        let manual = manual_summon("manual-action");
+        assert_eq!(
+            completion_pet_action_effect(&manual, "open-focus", false),
+            Ok(CompletionPetActionEffect::QueueAndKeepVisible)
+        );
+        assert!(completion_pet_action_effect(&manual, "start-break", false).is_err());
+        assert!(completion_pet_action_effect(&manual, "movement-complete", true).is_err());
+        assert!(completion_pet_action_effect(
+            &setup_preview_summon("preview-action"),
+            "open-focus",
+            false
+        )
+        .is_err());
+
+        let state = CompletionPetWindowState::default();
+        state.set_summon(Some(manual));
+        let mode_before = state.surface_mode();
+        state
+            .queue_action(CompletionPetActionRequest {
+                action: "open-focus".to_string(),
+                summon_id: "manual-action".to_string(),
+                next_phase: None,
+            })
+            .unwrap();
+        assert!(state.snapshot().summon.is_some());
+        assert_eq!(state.surface_mode(), mode_before);
+        assert_eq!(state.pending_action().unwrap().next_phase, None);
+        assert!(state
+            .queue_action(CompletionPetActionRequest {
+                action: "movement-complete".to_string(),
+                summon_id: "manual-action".to_string(),
+                next_phase: None,
+            })
+            .is_err());
+        assert!(state.snapshot().summon.is_some());
+    }
+
+    #[test]
+    fn focus_action_allowlist_preserves_break_and_movement_completion_paths() {
+        let focus = focus_summon("focus-actions", true);
+        assert_eq!(
+            completion_pet_action_effect(&focus, "start-break", false),
+            Ok(CompletionPetActionEffect::QueueAndHide)
+        );
+        assert_eq!(
+            completion_pet_action_effect(&focus, "movement-complete", true),
+            Ok(CompletionPetActionEffect::QueueAndHide)
+        );
+        assert!(completion_pet_action_effect(&focus, "movement-complete", false).is_err());
+        assert!(completion_pet_action_effect(
+            &focus_summon("focus-no-movement", false),
+            "movement-complete",
+            true
+        )
+        .is_err());
+        assert!(completion_pet_action_effect(&focus, "open-focus", false).is_err());
+    }
+
+    #[test]
+    fn companion_projection_validation_derives_truthful_state_and_resolves_mapping() {
+        for summon in [
+            focus_summon("projection-focus", true),
+            manual_summon("projection-manual"),
+            setup_preview_summon("projection-preview"),
+        ] {
+            assert!(projection_for(summon, "idle", "session").validate().is_ok());
+        }
+
+        let projection =
+            projection_for(focus_summon("projection-truth", true), "working", "asking")
+                .validate()
+                .unwrap();
+        assert_eq!(projection.data_state, "attention");
+        assert_eq!(projection.motion_mapping.idle, "idle");
+        assert_eq!(projection.motion_mapping.working, "working");
+        assert_eq!(projection.motion_mapping.attention, "attention");
+        assert_eq!(projection.motion_mapping.done, "done");
+        assert_eq!(projection.motion_mapping.error, "error");
+        assert!(CompletionPetProjection {
+            session_status: "unknown".to_string(),
+            ..projection.clone()
+        }
+        .validate()
+        .is_err());
+        assert!(CompletionPetProjection {
+            activity_kind: "unknown".to_string(),
+            ..projection.clone()
+        }
+        .validate()
+        .is_err());
+        assert!(CompletionPetProjection {
+            replay_id: "   ".to_string(),
+            ..projection.clone()
+        }
+        .validate()
+        .is_err());
+        assert!(CompletionPetProjection {
+            schema_version: 1,
+            ..projection
+        }
+        .validate()
+        .is_err());
+    }
+
+    #[test]
+    fn companion_projection_update_is_current_summon_only_and_does_not_touch_window_revision() {
+        let state = CompletionPetWindowState::default();
+        let summon = focus_summon("projection-current", true);
+        state.set_summon(Some(summon.clone()));
+        state.set_surface_mode(CompletionPetSurfaceMode::Expanded);
+        let revision = state.begin_operation();
+        let projection = projection_for(summon.clone(), "done", "done");
+        state.update_projection(projection.clone()).unwrap();
+        assert_eq!(state.revision.load(Ordering::SeqCst), revision);
+        assert_eq!(state.surface_mode(), CompletionPetSurfaceMode::Expanded);
+        assert_eq!(state.snapshot().summon.unwrap(), summon);
+        assert_eq!(state.projection().unwrap().data_state, "done");
+        assert_eq!(state.projection().unwrap().replay_id, "replay-1");
+
+        let stale = projection_for(focus_summon("projection-stale", true), "working", "model");
+        assert!(state.update_projection(stale).is_err());
+        assert_eq!(state.projection().unwrap().replay_id, "replay-1");
+    }
+
+    #[test]
+    fn initial_snapshot_pairs_summon_and_projection_before_show_and_dismiss_is_bounded() {
+        let state = CompletionPetWindowState::default();
+        let summon = manual_summon("atomic-manual");
+        let projection = projection_for(summon.clone(), "attention", "asking")
+            .validate()
+            .unwrap();
+        state
+            .set_snapshot(summon.clone(), projection.clone())
+            .unwrap();
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.summon, Some(summon.clone()));
+        assert_eq!(snapshot.projection, Some(projection));
+
+        state
+            .queue_action(CompletionPetActionRequest {
+                action: "dismiss".to_string(),
+                summon_id: summon.id,
+                next_phase: None,
+            })
+            .unwrap();
+        let dismissal = state.pending_action().unwrap();
+        assert_eq!(dismissal.action, "dismiss");
+        assert_eq!(dismissal.next_phase, None);
+    }
+
+    #[test]
+    fn action_request_serializes_manual_next_phase_as_null() {
+        let request = CompletionPetActionRequest {
+            action: "open-focus".to_string(),
+            summon_id: "manual-action".to_string(),
+            next_phase: None,
+        };
+        assert_eq!(
+            serde_json::to_value(request).unwrap().get("nextPhase"),
+            Some(&Value::Null)
+        );
     }
 
     #[test]

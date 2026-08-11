@@ -49,6 +49,16 @@ test("pointer interaction still allows hover close after keyboard navigation", a
 test("main section tabs provide roving keyboard navigation and panel relationships", async ({ page }) => {
   await page.goto("/?demo=1&demoScenario=multi");
 
+  const headerClearance = await page.locator(".header-tablist").evaluate((tablist) => {
+    const surface = tablist.closest<HTMLElement>(".halo-surface")!;
+    const notch = tablist.closest<HTMLElement>(".notch-wrap")!;
+    return {
+      closedHeight: Number.parseFloat(getComputedStyle(notch).getPropertyValue("--closed-height")),
+      tabTop: tablist.getBoundingClientRect().top - surface.getBoundingClientRect().top,
+    };
+  });
+  expect(headerClearance.tabTop).toBeGreaterThanOrEqual(headerClearance.closedHeight);
+
   const sessionsTab = page.getByRole("tab", { name: "Sessions" });
   await sessionsTab.focus();
   await page.keyboard.press("ArrowRight");

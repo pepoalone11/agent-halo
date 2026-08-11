@@ -46,7 +46,8 @@ use notification::{
 use pet_window::{
     activate_completion_pet, completion_pet_state, drag_completion_pet, hide_completion_pet,
     set_completion_pet_expanded, set_completion_pet_movement, show_completion_pet,
-    submit_completion_pet_action, take_completion_pet_action, CompletionPetWindowState,
+    submit_completion_pet_action, take_completion_pet_action, update_completion_pet_projection,
+    CompletionPetWindowState,
 };
 use runtime_usage::{runtime_usage, RuntimeUsageState};
 use standalone_bridge::StandaloneBridgeState;
@@ -4257,7 +4258,10 @@ fn install_agent_halo_agy_hooks(app: tauri::AppHandle) -> Result<String, String>
 
     let resource_path = app
         .path()
-        .resolve("agent-halo-agy-hook.mjs", tauri::path::BaseDirectory::Resource)
+        .resolve(
+            "agent-halo-agy-hook.mjs",
+            tauri::path::BaseDirectory::Resource,
+        )
         .map_err(|e| format!("Failed to resolve resource: {e}"))?;
 
     let Some(hook_parent) = hook_path.parent() else {
@@ -4275,8 +4279,7 @@ fn install_agent_halo_agy_hooks(app: tauri::AppHandle) -> Result<String, String>
     let mut hooks_config: serde_json::Value = if hooks_json_path.exists() {
         let content = fs::read_to_string(&hooks_json_path)
             .map_err(|e| format!("Failed to read hooks.json: {e}"))?;
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse hooks.json: {e}"))?
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse hooks.json: {e}"))?
     } else {
         serde_json::json!({})
     };
@@ -5490,6 +5493,7 @@ pub fn run() {
             show_completion_pet,
             submit_completion_pet_action,
             take_completion_pet_action,
+            update_completion_pet_projection,
             completion_pet_state
         ]);
     let app = tauri::Builder::default()
