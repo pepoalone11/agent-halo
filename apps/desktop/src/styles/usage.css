@@ -328,6 +328,16 @@
   white-space: nowrap;
 }
 
+.usage-meter-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  color: var(--done);
+  font-size: 10px;
+  font-weight: 600;
+}
+
 .usage-status-dot {
   width: 6px;
   height: 6px;
@@ -336,12 +346,29 @@
   background: var(--done);
 }
 
-.usage-status-dot[data-level="warning"] {
+.usage-meter[data-level="warning"] .usage-meter-status {
+  color: var(--waiting);
+}
+
+.usage-meter[data-level="warning"] .usage-status-dot {
   background: var(--waiting);
 }
 
-.usage-status-dot[data-level="danger"] {
+.usage-meter[data-level="danger"] .usage-meter-status {
+  color: var(--danger);
+}
+
+.usage-meter[data-level="danger"] .usage-status-dot {
   background: var(--danger);
+}
+
+.usage-meter[data-level="unavailable"] .usage-meter-status {
+  color: var(--text-3);
+}
+
+.usage-meter[data-level="unavailable"] .usage-status-dot {
+  border: 1px solid currentColor;
+  background: transparent;
 }
 
 .usage-meter-track {
@@ -355,11 +382,16 @@
   height: 100%;
   display: block;
   border-radius: inherit;
-  background: rgba(232, 232, 234, 0.92);
+  background: var(--done);
+  transition: width 180ms ease, background-color 180ms ease;
 }
 
-.usage-provider-card[data-status="online"] .usage-meter-fill {
-  background: linear-gradient(90deg, rgba(232, 232, 234, 0.96), rgba(255, 157, 61, 0.82));
+.usage-meter[data-level="warning"] .usage-meter-fill {
+  background: var(--waiting);
+}
+
+.usage-meter[data-level="danger"] .usage-meter-fill {
+  background: var(--danger);
 }
 
 .usage-meter[data-empty="true"] .usage-meter-fill {

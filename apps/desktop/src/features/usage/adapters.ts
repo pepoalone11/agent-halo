@@ -62,27 +62,33 @@ const getTextValue = (line: IUsageMetricLine | null): string | null => {
 };
 
 const getStatusLevel = (
-  used: number | null,
   left: number | null,
-  settings: IUsageSettings,
 ): IUsageMetric["statusLevel"] => {
-  if (used === null) {
-    return "ok";
+  if (left === null) {
+    return "unavailable";
   }
 
-  if (settings.usageMode === "used") {
-    if (used >= 80) {
-      return "danger";
-    }
-
-    return used >= 55 ? "warning" : "ok";
-  }
-
-  if (left !== null && left <= 20) {
+  if (left <= 20) {
     return "danger";
   }
 
-  return left !== null && left <= 45 ? "warning" : "ok";
+  return left <= 45 ? "warning" : "ok";
+};
+
+const getStatusLabel = (left: number | null): IUsageMetric["statusLabel"] => {
+  if (left === null) {
+    return "Unavailable";
+  }
+
+  if (left === 0) {
+    return "Exhausted";
+  }
+
+  if (left <= 20) {
+    return "Nearly exhausted";
+  }
+
+  return left <= 45 ? "Running low" : "Available";
 };
 
 const normalizeMetric = (
@@ -111,7 +117,8 @@ const normalizeMetric = (
     groupModels: getUsageMetricGroupModels(groupLabel),
     limitLabel,
     value,
-    statusLevel: getStatusLevel(used, left, settings),
+    statusLevel: getStatusLevel(left),
+    statusLabel: getStatusLabel(left),
     remainingLabel: hasAvailableQuota
       ? "Quota available"
       : value === null
@@ -321,6 +328,7 @@ export const createDemoAgentUsage = (
       limitLabel: groupLabel ? "Weekly Limit" : null,
       value,
       statusLevel,
+      statusLabel: getStatusLabel(value),
       remainingLabel,
       resetLabel,
     };

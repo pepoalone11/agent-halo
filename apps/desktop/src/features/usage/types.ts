@@ -58,7 +58,13 @@ export interface IUsageMetric {
   groupModels: string[];
   limitLabel: string | null;
   value: number | null;
-  statusLevel: "ok" | "warning" | "danger";
+  statusLevel: "ok" | "warning" | "danger" | "unavailable";
+  statusLabel:
+    | "Available"
+    | "Running low"
+    | "Nearly exhausted"
+    | "Exhausted"
+    | "Unavailable";
   remainingLabel: string | null;
   resetLabel: string | null;
 }

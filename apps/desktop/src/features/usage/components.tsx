@@ -52,14 +52,29 @@ interface IMeterProps {
 }
 
 const Meter = ({ metric: value }: IMeterProps) => (
-  <div className="usage-meter" data-empty={value.value === null}>
+  <div
+    className="usage-meter"
+    data-empty={value.value === null}
+    data-level={value.statusLevel}
+  >
     <div className="usage-meter-head">
       <span className="usage-meter-label">{value.limitLabel ?? value.label}</span>
-      <span className="usage-status-dot" data-level={value.statusLevel} />
+      <span className="usage-meter-status">
+        <span className="usage-status-dot" aria-hidden="true" />
+        {value.statusLabel}
+      </span>
     </div>
-    <span className="usage-meter-track" aria-hidden="true">
+    <span
+      className="usage-meter-track"
+      role="progressbar"
+      aria-label={`${value.limitLabel ?? value.label}: ${value.statusLabel}`}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={value.value ?? undefined}
+    >
       <span
         className="usage-meter-fill"
+        aria-hidden="true"
         style={{ width: `${value.value ?? 0}%` }}
       />
     </span>

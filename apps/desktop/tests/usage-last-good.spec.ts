@@ -63,6 +63,79 @@ test("Usage keeps Codex values visible and labels them outdated after a refresh 
   await expect(page.getByText("Codex usage is rate limited. Try again shortly.")).toBeVisible();
 });
 
+test("Usage meters communicate remaining quota with semantic color and copy", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as typeof window & { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
+      invoke: async (command: string) => {
+        if (command === "notch_metrics") return [184, 36];
+        if (command === "set_keep_awake") return false;
+        if (command === "set_panel_open") return true;
+        if (command === "codex_usage") {
+          return {
+            providerId: "codex",
+            displayName: "Codex",
+            plan: "Pro",
+            fetchedAt: "2026-08-13T06:00:00Z",
+            lines: [
+              { type: "progress", label: "Available quota", used: 10, limit: 100 },
+              { type: "progress", label: "Low quota", used: 60, limit: 100 },
+              { type: "progress", label: "Nearly empty quota", used: 85, limit: 100 },
+              { type: "progress", label: "Empty quota", used: 100, limit: 100 },
+            ],
+          };
+        }
+        throw new Error(`${command} unavailable`);
+      },
+    };
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open Agent Halo" }).click();
+  await page.getByRole("tab", { name: "Usage" }).click();
+
+  const meters = page.locator(".usage-meter");
+  await expect(meters).toHaveCount(4);
+  await expect(meters.nth(0)).toHaveAttribute("data-level", "ok");
+  await expect(meters.nth(0)).toContainText("Available");
+  await expect(meters.nth(1)).toHaveAttribute("data-level", "warning");
+  await expect(meters.nth(1)).toContainText("Running low");
+  await expect(meters.nth(2)).toHaveAttribute("data-level", "danger");
+  await expect(meters.nth(2)).toContainText("Nearly exhausted");
+  await expect(meters.nth(3)).toHaveAttribute("data-level", "danger");
+  await expect(meters.nth(3)).toContainText("Exhausted");
+
+  await expect(meters.nth(0).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "90");
+  await expect(meters.nth(1).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "40");
+  await expect(meters.nth(2).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "15");
+  await expect(meters.nth(3).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0");
+
+  const fillColors = await meters.locator(".usage-meter-fill").evaluateAll((fills) =>
+    fills.map((fill) => getComputedStyle(fill).backgroundColor),
+  );
+  expect(fillColors).toEqual([
+    "rgb(74, 222, 128)",
+    "rgb(255, 178, 61)",
+    "rgb(255, 107, 102)",
+    "rgb(255, 107, 102)",
+  ]);
+
+  await page.getByRole("tab", { name: "Settings" }).click();
+  await page.getByRole("radio", { name: "Used" }).click();
+  await page.getByRole("tab", { name: "Codex" }).click();
+
+  await expect(meters.nth(0)).toHaveAttribute("data-level", "ok");
+  await expect(meters.nth(0)).toContainText("Available");
+  await expect(meters.nth(1)).toHaveAttribute("data-level", "warning");
+  await expect(meters.nth(1)).toContainText("Running low");
+  await expect(meters.nth(2)).toHaveAttribute("data-level", "danger");
+  await expect(meters.nth(2)).toContainText("Nearly exhausted");
+  await expect(meters.nth(3)).toContainText("Exhausted");
+  await expect(meters.nth(0).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "10");
+  await expect(meters.nth(1).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
+  await expect(meters.nth(2).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "85");
+  await expect(meters.nth(3).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
+});
+
 test("Usage marks a native cached Status response as outdated instead of online", async ({ page }) => {
   await page.addInitScript(() => {
     let claudeCalls = 0;
