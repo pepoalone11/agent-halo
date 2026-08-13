@@ -15,7 +15,8 @@ test("every surface uses the Halo Bot default with one stable loadout and no ran
   expect(initialPet).toBe("halo-bot");
   await expect(pet).toHaveAttribute("data-loadout", "3051");
   expect(await pet.getAttribute("data-palette")).toBeNull();
-  await expect(pet.locator(".halo-pet-body")).toHaveCSS("background-size", "108px 36px");
+  await expect(pet.locator(".halo-pet-body")).toHaveCSS("background-image", "none");
+  await expect(pet.locator(".pixabot-layer")).toHaveCount(4);
   const signal = pet.locator(".halo-pet-signal");
   await expect(signal).toHaveCSS("background-size", "80px 20px");
   await expect(signal).toHaveCSS("left", "40px");
@@ -24,7 +25,7 @@ test("every surface uses the Halo Bot default with one stable loadout and no ran
   await expect(signal).toHaveCSS("height", "20px");
 
   const dimensions = await pet.evaluate(async (element) => {
-    const body = getComputedStyle(element.querySelector(".halo-pet-body")!).backgroundImage.match(/url\(["']?(.*?)["']?\)/)?.[1];
+    const body = getComputedStyle(element.querySelector('.pixabot-layer[data-category="body"] .pixabot-part')!).backgroundImage.match(/url\(["']?(.*?)["']?\)/)?.[1];
     const signal = getComputedStyle(element.querySelector(".halo-pet-signal")!).backgroundImage.match(/url\(["']?(.*?)["']?\)/)?.[1];
     const read = async (url: string | undefined) => {
       if (!url) return null;
@@ -33,7 +34,7 @@ test("every surface uses the Halo Bot default with one stable loadout and no ran
     };
     return { body: await read(body), signal: await read(signal) };
   });
-  expect(dimensions).toEqual({ body: [108, 36], signal: [80, 20] });
+  expect(dimensions).toEqual({ body: [32, 32], signal: [80, 20] });
 
   const ambientPet = page.locator(".activity-pet.halo-pet");
   await expect(ambientPet).toHaveCSS("width", "58px");
@@ -63,6 +64,18 @@ test("pet normalization defaults invalid or missing values to Halo Bot", async (
   expect(result.invalid).toBe("halo-bot");
   expect(result.selected).toBe("haloform");
   expect(result.roster).toEqual(["halo-bot", "haloform"]);
+});
+
+test("Halo Bot normalizes direct loadout props before rendering metadata and layers", async ({ page }) => {
+  await page.goto("/?demo=1&demoScenario=idle");
+  const result = await page.evaluate(async () => {
+    const { getHaloBotLoadout } = await import("/src/features/session/haloBot.ts");
+    return {
+      uppercase: getHaloBotLoadout("F76B"),
+      invalid: getHaloBotLoadout("invalid"),
+    };
+  });
+  expect(result).toEqual({ uppercase: "f76b", invalid: "3051" });
 });
 
 test("retired legacy mascot preference migrates into the Halo Bot fallback", async ({ page }) => {
@@ -131,24 +144,27 @@ test("setup selects one global pet and persists the preference", async ({ page }
   expect(stored).toBe("haloform");
 });
 
-test("Halo Bot persists one validated loadout independently from the global Pet", async ({ page }) => {
+test("Halo Bot exposes the complete layered Pixabots catalog and persists any valid combination", async ({ page }) => {
   await page.goto("/?demo=1&demoScenario=long-llm");
   await page.getByRole("button", { name: "Setup" }).click();
   await page.getByRole("tab", { name: "Pet" }).click();
 
-  await expect(page.getByText("Loadout · Researcher")).toBeVisible();
-  await expect(page.getByRole("radiogroup", { name: "Halo Bot loadout" })).toHaveCount(0);
+  await expect(page.getByText(/Pixabot · 3051 · 10,752 combinations/)).toBeVisible();
+  await expect(page.getByRole("group", { name: "Halo Bot loadout" })).toHaveCount(0);
   await page.getByRole("button", { name: "Change" }).click();
-  const loadouts = page.getByRole("radiogroup", { name: "Halo Bot loadout" });
-  await expect(loadouts.getByRole("radio")).toHaveCount(10);
-  const researcher = loadouts.getByRole("radio", { name: /Researcher/ });
-  await expect(researcher).toHaveAttribute("aria-checked", "true");
+  const loadouts = page.getByRole("group", { name: "Halo Bot loadout" });
+  await expect(loadouts.getByRole("combobox")).toHaveCount(4);
+  await expect(loadouts.getByRole("combobox", { name: "Halo Bot Eyes" }).locator("option")).toHaveCount(16);
+  await expect(loadouts.getByRole("combobox", { name: "Halo Bot Head" }).locator("option")).toHaveCount(8);
+  await expect(loadouts.getByRole("combobox", { name: "Halo Bot Body" }).locator("option")).toHaveCount(7);
+  await expect(loadouts.getByRole("combobox", { name: "Halo Bot Top" }).locator("option")).toHaveCount(12);
   await expect.poll(() => page.evaluate(() => window.localStorage.getItem("agent-halo.halo-bot-loadout"))).toBe("3051");
 
-  const ux = loadouts.getByRole("radio", { name: /UX/ });
-  await ux.click();
-  await expect(ux).toHaveAttribute("aria-checked", "true");
-  await expect.poll(() => page.evaluate(() => window.localStorage.getItem("agent-halo.halo-bot-loadout"))).toBe("1462");
+  await loadouts.getByRole("combobox", { name: "Halo Bot Eyes" }).selectOption("15");
+  await loadouts.getByRole("combobox", { name: "Halo Bot Head" }).selectOption("7");
+  await loadouts.getByRole("combobox", { name: "Halo Bot Body" }).selectOption("6");
+  await loadouts.getByRole("combobox", { name: "Halo Bot Top" }).selectOption("11");
+  await expect.poll(() => page.evaluate(() => window.localStorage.getItem("agent-halo.halo-bot-loadout"))).toBe("f76b");
   await page.locator(".pet-setting-row").getByRole("button", { name: "Choose" }).click();
   await expect(loadouts).toHaveCount(0);
   await expect(page.getByRole("radiogroup", { name: "Pet", exact: true })).toBeVisible();
@@ -156,18 +172,23 @@ test("Halo Bot persists one validated loadout independently from the global Pet"
   await page.getByRole("button", { name: "Back to sessions" }).click();
   const pet = page.locator(".session-row .halo-pet");
   await expect(pet).toHaveAttribute("data-pet", "halo-bot");
-  await expect(pet).toHaveAttribute("data-loadout", "1462");
-  await expect(pet.locator(".halo-pet-body")).toHaveCSS("background-image", /\/body\/halo-bot\/1462\/working\.png/);
+  await expect(pet).toHaveAttribute("data-loadout", "f76b");
+  await expect(pet.locator('.pixabot-layer[data-category="eyes"] .pixabot-part')).toHaveCSS("background-image", /\/body\/halo-bot\/parts\/eyes\/wayfarer-face\.png/);
+  await expect(pet.locator('.pixabot-layer[data-category="heads"] .pixabot-part')).toHaveCSS("background-image", /\/body\/halo-bot\/parts\/heads\/punch-bowl\.png/);
+  await expect(pet.locator('.pixabot-layer[data-category="body"] .pixabot-part')).toHaveCSS("background-image", /\/body\/halo-bot\/parts\/body\/fire\.png/);
+  await expect(pet.locator('.pixabot-layer[data-category="top"] .pixabot-part')).toHaveCSS("background-image", /\/body\/halo-bot\/parts\/top\/spikes\.png/);
 
   const normalized = await page.evaluate(async () => {
     const module = await import("/src/features/session/haloBot.ts");
     return {
       invalid: module.getHaloBotLoadout("invalid"),
       selected: module.getHaloBotLoadout("f061"),
-      loadouts: [...module.HALO_BOT_LOADOUTS],
+      mixedCase: module.getHaloBotLoadout("F76B"),
+      total: module.HALO_BOT_COMBINATION_COUNT,
+      parts: module.getHaloBotParts("f76b"),
     };
   });
-  expect(normalized).toEqual({ invalid: "3051", selected: "f061", loadouts: ["3051", "1462", "5324", "c160", "2515", "4232", "d351", "6124", "9132", "f061"] });
+  expect(normalized).toMatchObject({ invalid: "3051", selected: "f061", mixedCase: "f76b", total: 10752, parts: { eyes: { name: "wayfarer-face" }, heads: { name: "punch-bowl" }, body: { name: "fire" }, top: { name: "spikes" } } });
 });
 
 test("Letta state motion mapping changes only body presentation and persists", async ({ page }) => {
@@ -183,12 +204,29 @@ test("Letta state motion mapping changes only body presentation and persists", a
   const pet = page.locator('.session-row .halo-pet[data-state="working"]');
   await expect(pet).toHaveAttribute("data-motion", "idle");
   await expect(pet).toHaveAttribute("data-signal", "thinking-model");
-  await expect(pet.locator(".halo-pet-body")).toHaveCSS("background-image", /\/body\/halo-bot\/3051\/idle\.png/);
-  await expect(pet.locator(".halo-pet-body")).toHaveCSS("animation-duration", "0.9s");
+  await expect(pet.locator(".halo-pet-body")).toHaveCSS("animation-name", "none");
+  await expect(pet.locator('.pixabot-layer[data-category="top"]')).toHaveCSS("animation-name", "pixabot-idle-top");
+  await expect(pet.locator('.pixabot-layer[data-category="heads"]')).toHaveCSS("animation-name", "pixabot-idle-head");
+  await expect(pet.locator('.pixabot-layer[data-category="eyes"]')).toHaveCSS("animation-name", "pixabot-idle-head");
+  await expect(pet.locator('.pixabot-layer[data-category="body"]')).toHaveCSS("animation-name", "pixabot-idle-body");
+  await expect(pet.locator('.pixabot-layer[data-category="eyes"] .pixabot-part')).toHaveCSS("animation-name", "pixabot-blink");
+  await expect(pet.locator('.pixabot-layer[data-category="top"]')).toHaveCSS("animation-duration", "0.576s");
   await expect.poll(() => page.evaluate(() => window.localStorage.getItem("agent-halo.pet-motion-map"))).toContain('"working":"idle"');
 
   const persisted = await page.evaluate(async () => (await import("/src/features/session/petMotion.ts")).readHaloPetMotionMapping());
   expect(persisted.working).toBe("idle");
+});
+
+test("Halo Bot Working uses the approved per-layer rig without whole-body rotation", async ({ page }) => {
+  await page.goto("/?demo=1&demoScenario=long-llm");
+  const pet = page.locator('.session-row .halo-pet[data-state="working"]');
+  await expect(pet).toHaveAttribute("data-motion", "working");
+  await expect(pet.locator(".halo-pet-body")).toHaveCSS("animation-name", "none");
+  await expect(pet.locator('.pixabot-layer[data-category="top"]')).toHaveCSS("animation-name", "pixabot-working-top");
+  await expect(pet.locator('.pixabot-layer[data-category="body"]')).toHaveCSS("animation-name", "pixabot-working-body");
+  await expect(pet.locator('.pixabot-layer[data-category="heads"]')).toHaveCSS("animation-name", "pixabot-working-head");
+  await expect(pet.locator('.pixabot-layer[data-category="eyes"]')).toHaveCSS("animation-name", "pixabot-working-head");
+  await expect(pet.locator('.pixabot-layer[data-category="top"]')).toHaveCSS("animation-duration", "0.45s");
 });
 
 test("invalid motion mapping values normalize independently to truthful defaults", async ({ page }) => {
@@ -381,7 +419,7 @@ test("production roster manifest preserves every body and shared signal hash", a
       defaultMascot: string;
       defaultPet: string;
       roster: string[];
-      assignment: { status: string; storageKey: string; projectHashing: boolean; colorRandomization: boolean; loadout: { pet: string; storageKey: string; default: string; allowlist: string[]; automaticActivitySwap: boolean }; motionMapping: { storageKey: string; semanticStates: string[]; motions: string[]; default: Record<string, string>; scope: string } };
+      assignment: { status: string; storageKey: string; projectHashing: boolean; colorRandomization: boolean; loadout: { pet: string; storageKey: string; default: string; encoding: string; combinationCount: number; partCounts: Record<string, number>; automaticActivitySwap: boolean }; motionMapping: { storageKey: string; semanticStates: string[]; motions: string[]; default: Record<string, string>; scope: string } };
       signal: { idleIncluded: boolean; status: string };
       files: Record<string, string>;
     };
@@ -417,18 +455,17 @@ test("production roster manifest preserves every body and shared signal hash", a
   expect(result.defaultPet).toBe("halo-bot");
   expect(result.roster).toEqual(["halo-bot", "haloform"]);
   expect(result.assignment).toMatchObject({ status: "user-selected-global-two-pet", storageKey: "agent-halo.pet", projectHashing: false, colorRandomization: false });
-  expect(result.assignment.loadout).toEqual({ pet: "halo-bot", storageKey: "agent-halo.halo-bot-loadout", default: "3051", allowlist: ["3051", "1462", "5324", "c160", "2515", "4232", "d351", "6124", "9132", "f061"], projectHashing: false, randomization: false, automaticActivitySwap: false, strategy: expect.any(String) });
+  expect(result.assignment.loadout).toEqual({ pet: "halo-bot", storageKey: "agent-halo.halo-bot-loadout", default: "3051", encoding: "base36 indices in eyes/heads/body/top order", combinationCount: 10752, partCounts: { eyes: 16, heads: 8, body: 7, top: 12 }, projectHashing: false, randomization: false, automaticActivitySwap: false, strategy: expect.any(String) });
   expect(result.assignment.motionMapping).toMatchObject({ storageKey: "agent-halo.pet-motion-map", semanticStates: ["idle", "working", "attention", "done", "error"], motions: ["idle", "working", "attention", "done", "error"], default: { idle: "idle", working: "working", attention: "attention", done: "done", error: "error" }, scope: expect.stringContaining("Signal V4") });
   expect(result.signalStatus).toBe("integration-candidate-gemini-v4-bold");
   expect(result.idleIncluded).toBe(false);
-  expect(result.files).toHaveLength(75);
+  expect(result.files).toHaveLength(68);
   expect(result.files.every((file) => file.hashMatches)).toBe(true);
   expect(result.files.filter((file) => file.path.startsWith("signals/") && ["thinking-model", "attention-asking", "done"].some((name) => file.path.endsWith(`${name}.png`))).every((file) => file.size[0] === 80 && file.size[1] === 20)).toBe(true);
   expect(result.files.filter((file) => file.path.startsWith("signals/") && !["thinking-model", "attention-asking", "done"].some((name) => file.path.endsWith(`${name}.png`))).every((file) => file.size[0] === 60 && file.size[1] === 20)).toBe(true);
   const haloBotFiles = result.files.filter((file) => file.path.startsWith("body/halo-bot/"));
-  expect(haloBotFiles).toHaveLength(50);
-  expect(haloBotFiles.filter((file) => file.path.endsWith("/done.png")).every((file) => file.size[0] === 144 && file.size[1] === 36)).toBe(true);
-  expect(haloBotFiles.filter((file) => !file.path.endsWith("/done.png")).every((file) => file.size[0] === 108 && file.size[1] === 36)).toBe(true);
+  expect(haloBotFiles).toHaveLength(43);
+  expect(haloBotFiles.every((file) => file.size[1] === 32 && file.size[0] % 32 === 0)).toBe(true);
   const haloformFiles = result.files.filter((file) => file.path.startsWith("body/haloform/"));
   expect(haloformFiles).toHaveLength(15);
   expect(haloformFiles.filter((file) => file.path.startsWith("body/haloform/ambient/") && file.path.endsWith("/done.png")).every((file) => file.size[0] === 120 && file.size[1] === 30)).toBe(true);
@@ -462,10 +499,9 @@ test("project pet maps attention, done, and error to distinct truthful states", 
     await expect(pet).toBeVisible();
     await expect(pet).toHaveAttribute("data-pet", "halo-bot");
     await expect(pet).toHaveAttribute("data-loadout", "3051");
-    await expect(pet.locator(".halo-pet-body")).toHaveCSS("background-image", new RegExp(`/agent-halo-roster/body/halo-bot/3051/${scenario}\\.png`));
+    await expect(pet.locator(".halo-pet-body")).toHaveCSS("animation-name", `pixabot-${scenario}`);
     if (scenario === "attention" || scenario === "error") {
-      await expect(pet.locator(".halo-pet-body")).toHaveCSS("background-size", "108px 36px");
-      await expect(pet.locator(".halo-pet-body")).toHaveCSS("animation-name", `halo-pet-${scenario}`);
+      await expect(pet.locator(".pixabot-layer")).toHaveCount(4);
     }
     const signal = scenario === "attention" ? "attention-asking" : scenario;
     await expect(pet).toHaveAttribute("data-signal", signal);
@@ -480,7 +516,7 @@ test("done settles on the final frame while reduced motion stays static", async 
   await page.goto("/?demo=1&demoScenario=done");
   await page.locator(".session-row-main").click();
   const donePet = page.locator('.session-context-summary .halo-pet[data-state="done"]');
-  await expect(donePet.locator(".halo-pet-body")).toHaveCSS("background-position", "-108px 0px");
+  await expect(donePet.locator(".halo-pet-body")).toHaveCSS("animation-name", "pixabot-done");
   await expect(donePet.locator(".halo-pet-signal")).toHaveCSS("background-position", "-60px 0px");
 
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -488,7 +524,7 @@ test("done settles on the final frame while reduced motion stays static", async 
   await page.locator(".session-row-main").click();
   const reducedDonePet = page.locator('.session-context-summary .halo-pet[data-state="done"]');
   await expect(reducedDonePet.locator(".halo-pet-body")).toHaveCSS("animation-name", "none");
-  await expect(reducedDonePet.locator(".halo-pet-body")).toHaveCSS("background-position", "-108px 0px");
+  await expect(reducedDonePet.locator('.pixabot-layer[data-category="body"] .pixabot-part')).toHaveCSS("background-position", "0px 0px");
   await expect(reducedDonePet.locator(".halo-pet-signal")).toHaveCSS("animation-name", "none");
   await expect(reducedDonePet.locator(".halo-pet-signal")).toHaveCSS("background-position", "-60px 0px");
 

@@ -1,5 +1,5 @@
 import { getHaloPetSemanticState, isHaloPetName } from "../session/HaloPet";
-import { isHaloBotLoadout } from "../session/haloBot";
+import { getHaloBotLoadout, isHaloBotLoadout } from "../session/haloBot";
 import { normalizeHaloPetMotionMapping } from "../session/petMotion";
 import type { HaloPetMotionMapping } from "../session/petMotion";
 import type { ActivityKind, ISessionSummary } from "../session/types";
@@ -39,7 +39,7 @@ const isPetSize = (value: unknown): value is "small" | "medium" | "large" => val
 export const normalizeCompletionPetSummon = (value: unknown): ICompletionPetSummon | null => {
   if (!isRecord(value) || value.schemaVersion !== 2 || !isPurpose(value.purpose) || !isNonEmptyString(value.id) || !isPetSize(value.petSize)) return null;
   if (!isHaloPetName(value.pet)) return null;
-  const loadout = value.loadout === undefined ? undefined : isHaloBotLoadout(value.loadout) ? value.loadout : null;
+  const loadout = value.loadout === undefined ? undefined : isHaloBotLoadout(value.loadout) ? getHaloBotLoadout(value.loadout) : null;
   if (loadout === null) return null;
   const base = {
     schemaVersion: 2 as const,

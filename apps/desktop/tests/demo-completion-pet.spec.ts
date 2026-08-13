@@ -179,8 +179,14 @@ test("Halo Bot completion keeps the selected loadout and square pixel geometry",
   await expect(body).toHaveCSS("height", "78px");
   await expect(body).toHaveCSS("top", "5px");
   await expect(body).toHaveCSS("left", "19px");
-  await expect(body).toHaveCSS("background-size", "234px 78px");
-  await expect(body).toHaveCSS("background-image", /\/body\/halo-bot\/f061\/working\.png/);
+  await expect(body).toHaveCSS("background-image", "none");
+  await expect(body).toHaveCSS("animation-name", "none");
+  await expect(body.locator('.pixabot-layer[data-category="top"]')).toHaveCSS("animation-name", "pixabot-working-top");
+  await expect(body.locator('.pixabot-layer[data-category="body"]')).toHaveCSS("animation-name", "pixabot-working-body");
+  await expect(body.locator('.pixabot-layer[data-category="heads"]')).toHaveCSS("animation-name", "pixabot-working-head");
+  await expect(body.locator(".pixabot-layer")).toHaveCount(4);
+  await expect(body.locator('.pixabot-layer[data-category="eyes"] .pixabot-part')).toHaveCSS("background-image", /\/body\/halo-bot\/parts\/eyes\/wayfarer-face\.png/);
+  await expect(body.locator('.pixabot-layer[data-category="body"] .pixabot-part')).toHaveCSS("background-image", /\/body\/halo-bot\/parts\/body\/fire\.png/);
   await expect(body).toHaveCSS("image-rendering", "pixelated");
 });
 

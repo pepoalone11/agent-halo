@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { ArrowRight, Bot, Check, Coffee, Download, Dumbbell, Focus, Monitor as MonitorIcon, Play, PlugZap, RefreshCw } from "lucide-react";
 import type { IAgentHaloBridgeCapabilities } from "@agent-halo/protocol";
-import { HALO_PET_ROSTER, type HaloPetName } from "../session/HaloPet";
-import { HALO_BOT_LOADOUT_LABELS, HALO_BOT_LOADOUTS, type HaloBotLoadout } from "../session/haloBot";
+import { HaloBotBody, HALO_PET_ROSTER, type HaloPetName } from "../session/HaloPet";
+import { getHaloBotLoadoutLabel, getHaloBotParts, HALO_BOT_COMBINATION_COUNT, HALO_BOT_PART_CATALOG, HALO_BOT_PART_CATEGORIES, setHaloBotPart, type HaloBotLoadout, type HaloBotPartCategory } from "../session/haloBot";
 import { DEFAULT_HALO_PET_MOTION_MAPPING, HALO_PET_MOTIONS, type HaloPetMotion, type HaloPetMotionMapping, type HaloPetSemanticState } from "../session/petMotion";
 import { shortenPath } from "../session/activity";
 import { displayResolutionLabel, type IDisplayStateSnapshot } from "./display";
@@ -33,15 +33,26 @@ const PET_MOTION_OPTION_LABELS: Record<HaloPetMotion, string> = {
   attention: "Alert",
 };
 
+const HALO_BOT_PART_LABELS: Record<HaloBotPartCategory, string> = {
+  eyes: "Eyes",
+  heads: "Head",
+  body: "Body",
+  top: "Top",
+};
+
 const petPreviewStyle = (pet: HaloPetName, loadout: HaloBotLoadout, compact = false) => ({
-  backgroundImage: pet === "halo-bot"
-    ? `url("/mascots/agent-halo-roster/body/halo-bot/${loadout}/idle.png")`
-    : `url("/mascots/agent-halo-roster/body/haloform/session/idle.png")`,
+  backgroundImage: pet === "halo-bot" ? "none" : `url("/mascots/agent-halo-roster/body/haloform/session/idle.png")`,
   ...(compact
     ? { height: 32, backgroundSize: "96px 32px", backgroundPosition: "0 0", imageRendering: "auto" }
     : { height: 52, backgroundSize: "156px 52px", imageRendering: "auto" }),
   imageRendering: "pixelated",
 }) as CSSProperties;
+
+const SetupPetPreview = ({ compact = false, loadout, pet }: { compact?: boolean; loadout: HaloBotLoadout; pet: HaloPetName }) => (
+  <span className="pet-option-sprite" data-pet={pet} data-compact={compact} style={petPreviewStyle(pet, loadout, compact)} aria-hidden="true">
+    {pet === "halo-bot" ? <HaloBotBody loadout={loadout} /> : null}
+  </span>
+);
 
 export interface ISetupPanelProps {
   capabilities: IAgentHaloBridgeCapabilities;
@@ -102,10 +113,6 @@ export const SetupPanel = ({ capabilities, canUseNativeControls, completionPetEn
     window.requestAnimationFrame(() => document.getElementById(`pet-option-${selection}`)?.focus());
   };
 
-  const focusHaloBotLoadout = (selection: HaloBotLoadout): void => {
-    window.requestAnimationFrame(() => document.getElementById(`halo-bot-loadout-${selection}`)?.focus());
-  };
-
   const closePetPicker = (): void => {
     setPetPickerOpen(false);
     window.requestAnimationFrame(() => petPickerTriggerRef.current?.focus());
@@ -146,28 +153,8 @@ export const SetupPanel = ({ capabilities, canUseNativeControls, completionPetEn
     focusPet(nextPet);
   };
 
-  const handleHaloBotLoadoutKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, current: HaloBotLoadout): void => {
-    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
-    event.preventDefault();
-    const currentIndex = HALO_BOT_LOADOUTS.indexOf(current);
-    const rowSize = 5;
-    const delta = event.key === "ArrowLeft"
-      ? -1
-      : event.key === "ArrowRight"
-        ? 1
-        : event.key === "ArrowUp"
-          ? -rowSize
-          : event.key === "ArrowDown"
-            ? rowSize
-            : 0;
-    const nextIndex = event.key === "Home"
-      ? 0
-      : event.key === "End"
-        ? HALO_BOT_LOADOUTS.length - 1
-        : (currentIndex + delta + HALO_BOT_LOADOUTS.length) % HALO_BOT_LOADOUTS.length;
-    const next = HALO_BOT_LOADOUTS[nextIndex] ?? haloBotLoadout;
-    onHaloBotLoadoutChange(next);
-    focusHaloBotLoadout(next);
+  const handleHaloBotPartChange = (category: HaloBotPartCategory, rawIndex: string): void => {
+    onHaloBotLoadoutChange(setHaloBotPart(haloBotLoadout, category, Number.parseInt(rawIndex, 10)));
   };
 
   const handleDisplayKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, currentIndex: number): void => {
@@ -285,28 +272,36 @@ export const SetupPanel = ({ capabilities, canUseNativeControls, completionPetEn
           {activeCategory === "pet" ? (
             <>
               <div className="setup-section-heading"><span>Pet</span><small>Companion identity and completion preview</small></div>
-              <div className="setup-row pet-setting-row"><span className="pet-current-preview" data-pet={pet} style={petPreviewStyle(pet, haloBotLoadout)} aria-hidden="true" /><span className="setup-copy"><span className="setup-title">{PET_LABELS[pet]}</span><span className="setup-detail" id="pet-preview-availability">{pet === "halo-bot" ? `${HALO_BOT_LOADOUT_LABELS[haloBotLoadout]} loadout · used across Agent Halo` : canUseNativeControls ? "Used across Agent Halo" : "Desktop runtime required to preview"}</span></span><span className="setup-row-actions"><button ref={petPickerTriggerRef} className="pill-btn" type="button" onClick={() => { if (petPickerOpen) closePetPicker(); else { setLoadoutPickerOpen(false); setPetPickerOpen(true); } }} data-tauri-drag-region="false" aria-controls="pet-picker" aria-expanded={petPickerOpen}><Bot size={12} strokeWidth={2.3} />{petPickerOpen ? "Close" : "Choose"}</button><button className={`pill-btn accent pet-preview-button ${petPreviewState === "stale" ? "is-stale" : ""}`} type="button" disabled={!canUseNativeControls || petPreviewState === "showing"} onClick={() => void onShowPetPreview()} data-tauri-drag-region="false" aria-label={petPreviewState === "stale" ? "Update Completion Pet preview" : "Show Completion Pet preview"} aria-describedby="pet-preview-availability">{petPreviewState === "stale" ? <RefreshCw size={12} strokeWidth={2.3} /> : petPreviewState === "shown" ? <Check size={12} strokeWidth={2.3} /> : <Play size={12} strokeWidth={2.3} />}{petPreviewState === "showing" ? "Showing…" : petPreviewState === "stale" ? "Update Pet" : petPreviewState === "shown" ? "Show again" : "Show Pet"}</button></span></div>
+              <div className="setup-row pet-setting-row"><span className="pet-current-preview"><SetupPetPreview pet={pet} loadout={haloBotLoadout} /></span><span className="setup-copy"><span className="setup-title">{PET_LABELS[pet]}</span><span className="setup-detail" id="pet-preview-availability">{pet === "halo-bot" ? `${getHaloBotLoadoutLabel(haloBotLoadout)} · ${haloBotLoadout.toUpperCase()} · used across Agent Halo` : canUseNativeControls ? "Used across Agent Halo" : "Desktop runtime required to preview"}</span></span><span className="setup-row-actions"><button ref={petPickerTriggerRef} className="pill-btn" type="button" onClick={() => { if (petPickerOpen) closePetPicker(); else { setLoadoutPickerOpen(false); setPetPickerOpen(true); } }} data-tauri-drag-region="false" aria-controls="pet-picker" aria-expanded={petPickerOpen}><Bot size={12} strokeWidth={2.3} />{petPickerOpen ? "Close" : "Choose"}</button><button className={`pill-btn accent pet-preview-button ${petPreviewState === "stale" ? "is-stale" : ""}`} type="button" disabled={!canUseNativeControls || petPreviewState === "showing"} onClick={() => void onShowPetPreview()} data-tauri-drag-region="false" aria-label={petPreviewState === "stale" ? "Update Completion Pet preview" : "Show Completion Pet preview"} aria-describedby="pet-preview-availability">{petPreviewState === "stale" ? <RefreshCw size={12} strokeWidth={2.3} /> : petPreviewState === "shown" ? <Check size={12} strokeWidth={2.3} /> : <Play size={12} strokeWidth={2.3} />}{petPreviewState === "showing" ? "Showing…" : petPreviewState === "stale" ? "Update Pet" : petPreviewState === "shown" ? "Show again" : "Show Pet"}</button></span></div>
               {petPickerOpen ? (
                 <div className="pet-picker" id="pet-picker" role="radiogroup" aria-label="Pet">
                   {HALO_PET_ROSTER.map((option) => (
-                    <button className="pet-option" data-selected={option === pet} id={`pet-option-${option}`} type="button" role="radio" aria-checked={option === pet} tabIndex={option === pet ? 0 : -1} onClick={() => { onPetChange(option); closePetPicker(); }} onKeyDown={(event) => handlePetKeyDown(event, option)} data-tauri-drag-region="false" key={option} title={PET_LABELS[option]}><span className="pet-option-sprite" data-pet={option} style={petPreviewStyle(option, haloBotLoadout, true)} aria-hidden="true" /><span>{PET_LABELS[option]}</span></button>
+                    <button className="pet-option" data-selected={option === pet} id={`pet-option-${option}`} type="button" role="radio" aria-checked={option === pet} tabIndex={option === pet ? 0 : -1} onClick={() => { onPetChange(option); closePetPicker(); }} onKeyDown={(event) => handlePetKeyDown(event, option)} data-tauri-drag-region="false" key={option} title={PET_LABELS[option]}><SetupPetPreview compact pet={option} loadout={haloBotLoadout} /><span>{PET_LABELS[option]}</span></button>
                   ))}
                 </div>
               ) : null}
               {pet === "halo-bot" && !petPickerOpen ? (
                 <div className="halo-bot-loadout-disclosure">
-                  <span>Loadout · {HALO_BOT_LOADOUT_LABELS[haloBotLoadout]}</span>
+                  <span>Pixabot · {haloBotLoadout.toUpperCase()} · {HALO_BOT_COMBINATION_COUNT.toLocaleString()} combinations</span>
                   <button ref={loadoutPickerTriggerRef} className="pill-btn" type="button" aria-controls="halo-bot-loadout-picker" aria-expanded={loadoutPickerOpen} onClick={() => setLoadoutPickerOpen((current) => !current)} data-tauri-drag-region="false">{loadoutPickerOpen ? "Close" : "Change"}</button>
                 </div>
               ) : null}
               {pet === "halo-bot" && loadoutPickerOpen && !petPickerOpen ? (
-                <div className="halo-bot-loadout-picker" id="halo-bot-loadout-picker" role="radiogroup" aria-label="Halo Bot loadout">
-                  {HALO_BOT_LOADOUTS.map((loadout) => (
-                    <button className="pet-option halo-bot-loadout-option" data-selected={loadout === haloBotLoadout} id={`halo-bot-loadout-${loadout}`} type="button" role="radio" aria-checked={loadout === haloBotLoadout} tabIndex={loadout === haloBotLoadout ? 0 : -1} onClick={() => onHaloBotLoadoutChange(loadout)} onKeyDown={(event) => handleHaloBotLoadoutKeyDown(event, loadout)} data-tauri-drag-region="false" key={loadout} title={`${HALO_BOT_LOADOUT_LABELS[loadout]} · ${loadout}`}>
-                      <span className="pet-option-sprite" style={petPreviewStyle("halo-bot", loadout, true)} aria-hidden="true" />
-                      <span>{HALO_BOT_LOADOUT_LABELS[loadout]}</span>
-                    </button>
-                  ))}
+                <div className="halo-bot-loadout-picker" id="halo-bot-loadout-picker" role="group" aria-label="Halo Bot loadout">
+                  <div className="halo-bot-loadout-preview"><SetupPetPreview pet="halo-bot" loadout={haloBotLoadout} /><span><strong>{getHaloBotLoadoutLabel(haloBotLoadout)}</strong><small>ID {haloBotLoadout.toUpperCase()}</small></span></div>
+                  <div className="halo-bot-part-grid">
+                    {HALO_BOT_PART_CATEGORIES.map((category) => {
+                      const selected = getHaloBotParts(haloBotLoadout)[category];
+                      return (
+                        <label className="halo-bot-part-row" htmlFor={`halo-bot-part-${category}`} key={category}>
+                          <span>{HALO_BOT_PART_LABELS[category]}</span>
+                          <select id={`halo-bot-part-${category}`} value={selected.index} onChange={(event) => handleHaloBotPartChange(category, event.target.value)} data-tauri-drag-region="false" aria-label={`Halo Bot ${HALO_BOT_PART_LABELS[category]}`}>
+                            {HALO_BOT_PART_CATALOG[category].map((part, index) => <option value={index} key={part.name}>{part.name}</option>)}
+                          </select>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
               ) : null}
               <div className="setup-row"><span className="status-slot"><Bot className="setup-icon" size={14} strokeWidth={2.3} /></span><span className="setup-copy"><span className="setup-title">Completion Pet size</span><span className="setup-detail">Changes only the floating Pet</span></span><span className="setup-size-options" role="radiogroup" aria-label="Completion Pet size">{COMPLETION_PET_SIZES.map((size) => <button id={`completion-pet-size-${size}`} type="button" role="radio" aria-checked={completionPetSize === size} tabIndex={completionPetSize === size ? 0 : -1} data-active={completionPetSize === size} onClick={() => onCompletionPetSizeChange(size)} onKeyDown={(event) => handlePetSizeKeyDown(event, size)} data-tauri-drag-region="false" key={size}>{completionPetSizeLabel(size)}</button>)}</span></div>

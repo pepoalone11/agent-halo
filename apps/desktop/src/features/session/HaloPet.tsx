@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { DEFAULT_HALO_BOT_LOADOUT, type HaloBotLoadout } from "./haloBot";
+import { DEFAULT_HALO_BOT_LOADOUT, getHaloBotLoadout, getHaloBotParts, HALO_BOT_LAYER_ORDER, type HaloBotLoadout, type HaloBotPartCategory } from "./haloBot";
 import { DEFAULT_HALO_PET_MOTION_MAPPING, resolveHaloPetMotion, type HaloPetMotionMapping, type HaloPetSemanticState } from "./petMotion";
 import type { ActivityKind, ISessionSummary } from "./types";
 
@@ -67,10 +67,8 @@ export const getHaloPetSignal = (
   return SIGNAL_BY_ACTIVITY[kind];
 };
 
-const getStyle = (pet: HaloPetName, loadout: HaloBotLoadout, motion: HaloPetSemanticState, signal: HaloPetSignal, surface: "ambient" | "session" | "completion") => ({
-  "--halo-pet-body": pet === "halo-bot"
-    ? `url("/mascots/agent-halo-roster/body/halo-bot/${loadout}/${motion}.png")`
-    : `url("/mascots/agent-halo-roster/body/haloform/${surface}/${motion}.png")`,
+const getStyle = (pet: HaloPetName, motion: HaloPetSemanticState, signal: HaloPetSignal, surface: "ambient" | "session" | "completion") => ({
+  ...(pet === "haloform" ? { "--halo-pet-body": `url("/mascots/agent-halo-roster/body/haloform/${surface}/${motion}.png")` } : {}),
   ...(signal === "none" ? {} : { "--halo-pet-signal": `url("/mascots/agent-halo-roster/signals/${signal}.png")` }),
   ...(pet === "haloform" ? surface === "ambient" ? {
     "--halo-pet-frame-width": "30px",
@@ -96,12 +94,38 @@ const getStyle = (pet: HaloPetName, loadout: HaloBotLoadout, motion: HaloPetSema
     "--halo-pet-saturation": "1",
     "--halo-pet-brightness": "1",
   } : {}),
-}) as CSSProperties & { "--halo-pet-body": string; "--halo-pet-signal"?: string };
+}) as CSSProperties & { "--halo-pet-body"?: string; "--halo-pet-signal"?: string };
 
 const SQUARE_PET_BODY_STYLE = {
   imageRendering: "pixelated",
   filter: "saturate(var(--halo-pet-saturation)) brightness(var(--halo-pet-brightness))",
 } as CSSProperties;
+
+const HALO_BOT_PART_LABELS: Record<HaloBotPartCategory, string> = {
+  eyes: "Eyes",
+  heads: "Head",
+  body: "Body",
+  top: "Top",
+};
+
+export const HaloBotBody = ({ loadout }: { loadout: HaloBotLoadout }) => {
+  const parts = getHaloBotParts(loadout);
+  return (
+    <span className="halo-pet-body pixabot-body" style={SQUARE_PET_BODY_STYLE}>
+      {HALO_BOT_LAYER_ORDER.map((category) => {
+        const part = parts[category];
+        const style = {
+          "--pixabot-frame-count": part.frames,
+          "--pixabot-animation-steps": Math.max(1, part.frames - 1),
+          "--pixabot-part-duration": `${part.frames * 72}ms`,
+          backgroundImage: `url("/mascots/agent-halo-roster/body/halo-bot/parts/${category}/${part.name}.png")`,
+          backgroundSize: `${part.frames * 100}% 100%`,
+        } as CSSProperties;
+        return <span className="pixabot-layer" data-category={category} title={`${HALO_BOT_PART_LABELS[category]}: ${part.name}`} key={category}><span className="pixabot-part" data-part-kind={part.kind} style={style} /></span>;
+      })}
+    </span>
+  );
+};
 
 export interface IHaloPetProps {
   activityKind?: ActivityKind;
@@ -118,10 +142,10 @@ export const HaloPet = ({ activityKind, className, loadout, motionMapping = DEFA
   const motion = resolveHaloPetMotion(state, motionMapping);
   const signal = getHaloPetSignal(status, activityKind);
   const visualStatus = status === "idle" || status === "inactive" ? status : state;
-  const resolvedLoadout = pet === "halo-bot" ? loadout ?? DEFAULT_HALO_BOT_LOADOUT : DEFAULT_HALO_BOT_LOADOUT;
+  const resolvedLoadout = pet === "halo-bot" ? getHaloBotLoadout(loadout) : DEFAULT_HALO_BOT_LOADOUT;
   return (
-    <span className={`${className} halo-pet`} data-status={visualStatus} data-session-status={status ?? "idle"} data-kind={activityKind} data-state={state} data-motion={motion} data-signal={signal} data-pet={pet} data-loadout={pet === "halo-bot" ? resolvedLoadout : undefined} style={getStyle(pet, resolvedLoadout, motion, signal, surface)} aria-hidden="true">
-      <span className="halo-pet-body" style={SQUARE_PET_BODY_STYLE} />
+    <span className={`${className} halo-pet`} data-status={visualStatus} data-session-status={status ?? "idle"} data-kind={activityKind} data-state={state} data-motion={motion} data-signal={signal} data-pet={pet} data-loadout={pet === "halo-bot" ? resolvedLoadout : undefined} style={getStyle(pet, motion, signal, surface)} aria-hidden="true">
+      {pet === "halo-bot" ? <HaloBotBody loadout={resolvedLoadout} /> : <span className="halo-pet-body" style={SQUARE_PET_BODY_STYLE} />}
       {signal === "none" ? null : <span className="halo-pet-signal" />}
     </span>
   );

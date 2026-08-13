@@ -8,10 +8,10 @@ const assetRoot = join(distRoot, "assets");
 
 const BUDGETS = {
   coreDistBytes: 575_500,
-  cssGzipBytes: 12_750,
+  cssGzipBytes: 13_650,
   haloBotAssetBytes: 50_000,
   haloformAssetBytes: 85_000,
-  jsGzipBytes: 104_500,
+  jsGzipBytes: 105_500,
   movementAssetBytes: 28_250_000,
 };
 
@@ -67,7 +67,7 @@ await findLegacy(distRoot);
 
 const payload = {
   baselineCommit: "3fc8ff8",
-  budgetRevision: "interactive-pet-v2",
+  budgetRevision: "complete-pixabots-catalog",
   budgets: BUDGETS,
   current: {
     cssGzipBytes: css.gzipBytes,

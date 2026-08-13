@@ -256,6 +256,81 @@
     brightness(var(--halo-pet-brightness));
 }
 
+.pixabot-body {
+  overflow: visible;
+  background: none;
+  transform-origin: center bottom;
+}
+
+.pixabot-layer {
+  position: absolute;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+}
+
+.pixabot-part {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
+.halo-pet[data-pet="halo-bot"][data-motion="idle"] .pixabot-layer[data-category="top"] {
+  animation: pixabot-idle-top 576ms step-end infinite;
+}
+
+.halo-pet[data-pet="halo-bot"][data-motion="idle"] .pixabot-body {
+  animation: none;
+}
+
+.halo-pet[data-pet="halo-bot"][data-motion="idle"] .pixabot-layer:is([data-category="heads"], [data-category="eyes"]) {
+  animation: pixabot-idle-head 576ms step-end infinite;
+}
+
+.halo-pet[data-pet="halo-bot"][data-motion="idle"] .pixabot-layer[data-category="body"] {
+  animation: pixabot-idle-body 576ms step-end infinite;
+}
+
+.halo-pet[data-pet="halo-bot"][data-motion="working"] .pixabot-body {
+  animation: none;
+}
+
+.halo-pet[data-pet="halo-bot"][data-motion="working"] .pixabot-layer[data-category="top"] {
+  animation: pixabot-working-top 450ms step-end infinite;
+}
+
+.halo-pet[data-pet="halo-bot"][data-motion="working"] .pixabot-layer[data-category="body"] {
+  animation: pixabot-working-body 450ms step-end infinite;
+}
+
+.halo-pet[data-pet="halo-bot"][data-motion="working"] .pixabot-layer:is([data-category="heads"], [data-category="eyes"]) {
+  animation: pixabot-working-head 450ms step-end infinite;
+}
+
+.halo-pet[data-pet="halo-bot"][data-motion="attention"] .pixabot-body {
+  animation: pixabot-attention 0.7s step-end infinite;
+}
+
+.halo-pet[data-pet="halo-bot"][data-motion="error"] .pixabot-body {
+  animation: pixabot-error 0.63s step-end infinite;
+}
+
+.halo-pet[data-pet="halo-bot"][data-motion="done"] .pixabot-body {
+  animation: pixabot-done 1.7s step-end 1 forwards;
+}
+
+.pixabot-part[data-part-kind="blink"] {
+  animation: pixabot-blink 1.152s step-end infinite;
+}
+
+.pixabot-part[data-part-kind="sequence"] {
+  animation: pixabot-sequence var(--pixabot-part-duration) steps(var(--pixabot-animation-steps), end) infinite;
+}
+
 .halo-pet-signal {
   top: var(--halo-pet-signal-top);
   left: var(--halo-pet-signal-left);
@@ -308,6 +383,10 @@
   background-size: var(--halo-pet-three-frame-width) var(--halo-pet-frame-height);
 }
 
+.halo-pet[data-pet="halo-bot"] .halo-pet-body {
+  background-size: auto;
+}
+
 .halo-pet[data-motion="idle"] .halo-pet-body {
   animation: halo-pet-three-frame-loop 0.9s step-end infinite;
 }
@@ -332,6 +411,11 @@
 .halo-pet[data-motion="done"] .halo-pet-body {
   background-size: var(--halo-pet-done-width) var(--halo-pet-frame-height);
   animation: halo-pet-done 1.7s step-end 1 forwards;
+}
+
+.halo-pet[data-pet="halo-bot"][data-motion] .halo-pet-body {
+  background-size: auto;
+  background-position: 0;
 }
 
 .halo-pet[data-pet="haloform"][data-motion="idle"] .halo-pet-body {
@@ -368,7 +452,9 @@
 }
 
 .halo-pet[data-status="inactive"] .halo-pet-body,
-.halo-pet[data-status="inactive"] .halo-pet-signal {
+.halo-pet[data-status="inactive"] .halo-pet-signal,
+.halo-pet[data-status="inactive"] .pixabot-layer,
+.halo-pet[data-status="inactive"] .pixabot-part {
   animation: none;
 }
 
@@ -385,6 +471,77 @@
   100% {
     background-position-x: var(--halo-pet-frame-2-x);
   }
+}
+
+@keyframes pixabot-idle-top {
+  0%, 24.99% { transform: translateY(0); }
+  25%, 37.49% { transform: translateY(0); }
+  37.5%, 49.99% { transform: translateY(3.125%); }
+  50%, 62.49% { transform: translateY(6.25%); }
+  62.5%, 74.99% { transform: translateY(7.8125%); }
+  75%, 87.49% { transform: translateY(6.25%); }
+  87.5%, 100% { transform: translateY(3.125%); }
+}
+
+@keyframes pixabot-idle-head {
+  0%, 24.99% { transform: translateY(0); }
+  25%, 37.49% { transform: translateY(3.125%); }
+  37.5%, 74.99% { transform: translateY(6.25%); }
+  75%, 87.49% { transform: translateY(3.125%); }
+  87.5%, 100% { transform: translateY(0); }
+}
+
+@keyframes pixabot-idle-body {
+  0%, 37.49% { transform: translateY(0); }
+  37.5%, 87.49% { transform: translateY(3.125%); }
+  87.5%, 100% { transform: translateY(0); }
+}
+
+@keyframes pixabot-working-top {
+  0%, 33.32% { transform: translateX(-3.125%); }
+  33.33%, 66.65% { transform: translateX(6.25%); }
+  66.66%, 100% { transform: translateY(3.125%); }
+}
+
+@keyframes pixabot-working-body {
+  0%, 33.32% { transform: translateX(-3.125%); }
+  33.33%, 100% { transform: translateX(3.125%); }
+}
+
+@keyframes pixabot-working-head {
+  0%, 33.32% { transform: translate(-6.25%, 6.25%); }
+  33.33%, 66.65% { transform: translateX(6.25%); }
+  66.66%, 100% { transform: translateY(6.25%); }
+}
+
+@keyframes pixabot-attention {
+  0%, 100% { transform: translateY(1px); }
+  34% { transform: translateY(-2px) scale(1.02); }
+}
+
+@keyframes pixabot-error {
+  0%, 100% { transform: translateX(-2px) rotate(-2deg); }
+  50% { transform: translateX(2px) rotate(2deg); }
+}
+
+@keyframes pixabot-done {
+  0% { transform: translateY(1px); }
+  28% { transform: translateY(-3px) scale(1.04); }
+  58% { transform: translateY(1px); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes pixabot-blink {
+  0%, 6.249% { background-position-x: 0; }
+  6.25%, 12.499% { background-position-x: 100%; }
+  12.5%, 18.749% { background-position-x: 0; }
+  18.75%, 24.999% { background-position-x: 100%; }
+  25%, 100% { background-position-x: 0; }
+}
+
+@keyframes pixabot-sequence {
+  from { background-position-x: 0; }
+  to { background-position-x: 100%; }
 }
 
 @keyframes halo-pet-done {
@@ -543,6 +700,17 @@
 
   .halo-pet[data-motion="done"] .halo-pet-body {
     background-position-x: var(--halo-pet-frame-3-x);
+  }
+
+  .halo-pet[data-pet="halo-bot"][data-motion="done"] .halo-pet-body,
+  .halo-pet[data-pet="halo-bot"] .pixabot-part {
+    background-position-x: 0;
+  }
+
+  .halo-pet[data-pet="halo-bot"] .pixabot-layer,
+  .halo-pet[data-pet="halo-bot"] .pixabot-part {
+    animation: none !important;
+    transform: none !important;
   }
 
   .halo-pet[data-signal="done"] .halo-pet-signal {

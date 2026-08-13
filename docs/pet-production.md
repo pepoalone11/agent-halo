@@ -26,7 +26,7 @@ Current delivery surfaces are:
 
 - ambient: `30 × 30` source cells;
 - session/detail: `36 × 36` source cells;
-- Completion Pet: square source cells, currently `96 × 96` for Haloform and `36 × 36` for Halo Bot before CSS presentation scaling;
+- Completion Pet: square source cells, currently `96 × 96` for Haloform; Halo Bot composes native `32 × 32` source layers before CSS presentation scaling;
 - binary alpha with transparent background;
 - shared detached Signal V4 at `20 × 20`.
 
@@ -157,19 +157,20 @@ apps/desktop/public/mascots/agent-halo-roster/body/<pet>/
 
 The tracked builder must reproduce every strip and manifest hash from the tracked package alone.
 
-## Lane B: add a Halo Bot loadout
+## Lane B: extend the Halo Bot catalog
 
-Halo Bot is one identity backed by the pinned MIT Pixabots layered rig. A new loadout should:
+Halo Bot is one identity backed by the pinned MIT Pixabots layered rig. The complete pinned catalog is available through one four-character base36 ID in `eyes / heads / body / top` order. Existing arrays are append-only so IDs remain stable. A catalog extension should:
 
 1. use the existing pinned source revision and license;
-2. select one compatible face/eyes, head, body/outfit, and top accessory combination;
-3. add a stable short loadout ID and user-facing label;
-4. reuse the shared deterministic five-state Halo Bot motion rig;
-5. preserve the authored source palette without random hue or project assignment;
-6. rebuild all five strips at `36 × 36` source cells;
-7. add source-part hashes and the composed-strip hashes to the tracked receipt;
-8. add the ID to both TypeScript and Rust allowlists;
-9. verify Setup selection, persistence, Completion projection, and invalid-value fallback.
+2. add one compatible face/eyes, head, body/outfit, or top accessory sheet;
+3. append the source part at the end of its category without reordering existing entries;
+4. preserve four-character base36 validation and update the catalog count;
+5. reuse the shared deterministic five-state Halo Bot presentation motion;
+6. preserve the authored source palette without random hue or project assignment;
+7. copy the exact part sheet into the tracked and public layered catalogs;
+8. add the source-part hash to the tracked receipt and public roster manifest;
+9. update TypeScript and Rust category bounds together;
+10. verify Setup selection, persistence, Completion projection, animated part playback, and invalid-value fallback.
 
 Update these active contracts together:
 
@@ -182,7 +183,7 @@ apps/desktop/tests/demo-pet.spec.ts
 apps/desktop/tests/demo-completion-pet.spec.ts
 ```
 
-Do not create a new Pet ID for each loadout and do not swap loadouts from semantic state or `agent-halo.pet-motion-map`.
+Do not create a new Pet ID for each combination, pre-generate one state-strip family per combination, reorder the append-only source catalog, or swap combinations from semantic state or `agent-halo.pet-motion-map`.
 
 ## Runtime integration checklist
 

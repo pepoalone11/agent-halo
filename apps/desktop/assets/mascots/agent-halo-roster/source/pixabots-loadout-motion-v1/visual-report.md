@@ -1,6 +1,6 @@
 # Halo Bot visual review
 
-Human-approved motion family for Agent Halo integration candidate. The ten curated Pixabots loadouts remain one Pet identity (`halo-bot`), not ten separate Pets.
+Historical 2026-07-22 ten-loadout motion review. It remains provenance for the original Halo Bot promotion, but it is not the current complete-catalog runtime contract. As of 2026-08-13, Halo Bot exposes all 10,752 pinned combinations through exact layered source sheets and CSS presentation motion while remaining one Pet identity (`halo-bot`).
 
 - Native cell: `36×36`; transparent 2px perimeter; binary alpha.
 - Idle, Working, Attention, Error: 3-frame `108×36` strips.

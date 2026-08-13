@@ -1,10 +1,45 @@
 {
-  "sourceRepo": "/Users/mahiro/ghq/github.com/pablostanley/pixabots",
+  "sourceRepo": "https://github.com/pablostanley/pixabots",
   "sourceRevision": "b384de38a1ac34bdde443e375bb1782841507a75",
   "license": "MIT",
+  "catalogMode": "complete pinned append-only catalog",
+  "categoryOrder": [
+    "eyes",
+    "heads",
+    "body",
+    "top"
+  ],
+  "layerOrder": [
+    "top",
+    "body",
+    "heads",
+    "eyes"
+  ],
+  "partCounts": {
+    "eyes": 16,
+    "heads": 8,
+    "body": 7,
+    "top": 12
+  },
+  "combinationCount": 10752,
   "parts": [
     {
       "category": "eyes",
+      "index": 0,
+      "name": "big-face",
+      "upstream": "app/public/parts/eyes/big-face.png",
+      "copied": "assets/parts/eyes/big-face.png",
+      "sha256": "1f638d5f487adcfdd07f2498f19a2ebc026b58f92a7f4c6fcf21a06e3fce5f72",
+      "dimensions": [
+        32,
+        32
+      ],
+      "frames": 1,
+      "binaryAlpha": true
+    },
+    {
+      "category": "eyes",
+      "index": 1,
       "name": "cheeky-terminal",
       "upstream": "app/public/parts/eyes/cheeky-terminal.png",
       "copied": "assets/parts/eyes/cheeky-terminal.png",
@@ -18,6 +53,7 @@
     },
     {
       "category": "eyes",
+      "index": 2,
       "name": "glasses",
       "upstream": "app/public/parts/eyes/glasses.png",
       "copied": "assets/parts/eyes/glasses.png",
@@ -31,6 +67,7 @@
     },
     {
       "category": "eyes",
+      "index": 3,
       "name": "human",
       "upstream": "app/public/parts/eyes/human.png",
       "copied": "assets/parts/eyes/human.png",
@@ -44,6 +81,7 @@
     },
     {
       "category": "eyes",
+      "index": 4,
       "name": "human-2",
       "upstream": "app/public/parts/eyes/human-2.png",
       "copied": "assets/parts/eyes/human-2.png",
@@ -57,6 +95,7 @@
     },
     {
       "category": "eyes",
+      "index": 5,
       "name": "monitor",
       "upstream": "app/public/parts/eyes/monitor.png",
       "copied": "assets/parts/eyes/monitor.png",
@@ -70,6 +109,7 @@
     },
     {
       "category": "eyes",
+      "index": 6,
       "name": "monitor-round",
       "upstream": "app/public/parts/eyes/monitor-round.png",
       "copied": "assets/parts/eyes/monitor-round.png",
@@ -83,6 +123,35 @@
     },
     {
       "category": "eyes",
+      "index": 7,
+      "name": "mustache",
+      "upstream": "app/public/parts/eyes/mustache.png",
+      "copied": "assets/parts/eyes/mustache.png",
+      "sha256": "82422c2f9e0f7feacd207f83890ae8bbe05dccc8d3f3d6d5bae44f23d85da288",
+      "dimensions": [
+        32,
+        32
+      ],
+      "frames": 1,
+      "binaryAlpha": true
+    },
+    {
+      "category": "eyes",
+      "index": 8,
+      "name": "terminal",
+      "upstream": "app/public/parts/eyes/terminal.png",
+      "copied": "assets/parts/eyes/terminal.png",
+      "sha256": "6506ac3ef407acb4fa35b5cc5def9d319868b10b37ae2bb34d33982c0ad88d02",
+      "dimensions": [
+        64,
+        32
+      ],
+      "frames": 2,
+      "binaryAlpha": true
+    },
+    {
+      "category": "eyes",
+      "index": 9,
       "name": "terminal-green",
       "upstream": "app/public/parts/eyes/terminal-green.png",
       "copied": "assets/parts/eyes/terminal-green.png",
@@ -96,6 +165,35 @@
     },
     {
       "category": "eyes",
+      "index": 10,
+      "name": "terminal-light",
+      "upstream": "app/public/parts/eyes/terminal-light.png",
+      "copied": "assets/parts/eyes/terminal-light.png",
+      "sha256": "c7e789fec057b2bf941fb27edee5532960ff52ecef3e8f838290cb42cf8404d2",
+      "dimensions": [
+        32,
+        32
+      ],
+      "frames": 1,
+      "binaryAlpha": true
+    },
+    {
+      "category": "eyes",
+      "index": 11,
+      "name": "terminal-round",
+      "upstream": "app/public/parts/eyes/terminal-round.png",
+      "copied": "assets/parts/eyes/terminal-round.png",
+      "sha256": "a80d665c84ce0d83e2f4a3766dc3c1039798b3d1078d044c9e5a1b5ee5822330",
+      "dimensions": [
+        64,
+        32
+      ],
+      "frames": 2,
+      "binaryAlpha": true
+    },
+    {
+      "category": "eyes",
+      "index": 12,
       "name": "tight-visor",
       "upstream": "app/public/parts/eyes/tight-visor.png",
       "copied": "assets/parts/eyes/tight-visor.png",
@@ -109,6 +207,7 @@
     },
     {
       "category": "eyes",
+      "index": 13,
       "name": "visor",
       "upstream": "app/public/parts/eyes/visor.png",
       "copied": "assets/parts/eyes/visor.png",
@@ -122,6 +221,21 @@
     },
     {
       "category": "eyes",
+      "index": 14,
+      "name": "wayfarer",
+      "upstream": "app/public/parts/eyes/wayfarer.png",
+      "copied": "assets/parts/eyes/wayfarer.png",
+      "sha256": "f45944c10cb375ecaf0953fe21115755ebd7036a1b35a4bee183ca245c24dbb0",
+      "dimensions": [
+        128,
+        32
+      ],
+      "frames": 4,
+      "binaryAlpha": true
+    },
+    {
+      "category": "eyes",
+      "index": 15,
       "name": "wayfarer-face",
       "upstream": "app/public/parts/eyes/wayfarer-face.png",
       "copied": "assets/parts/eyes/wayfarer-face.png",
@@ -135,6 +249,7 @@
     },
     {
       "category": "heads",
+      "index": 0,
       "name": "ac",
       "upstream": "app/public/parts/heads/ac.png",
       "copied": "assets/parts/heads/ac.png",
@@ -148,6 +263,7 @@
     },
     {
       "category": "heads",
+      "index": 1,
       "name": "blob",
       "upstream": "app/public/parts/heads/blob.png",
       "copied": "assets/parts/heads/blob.png",
@@ -161,6 +277,7 @@
     },
     {
       "category": "heads",
+      "index": 2,
       "name": "blob-blue",
       "upstream": "app/public/parts/heads/blob-blue.png",
       "copied": "assets/parts/heads/blob-blue.png",
@@ -174,6 +291,7 @@
     },
     {
       "category": "heads",
+      "index": 3,
       "name": "bowl",
       "upstream": "app/public/parts/heads/bowl.png",
       "copied": "assets/parts/heads/bowl.png",
@@ -187,6 +305,7 @@
     },
     {
       "category": "heads",
+      "index": 4,
       "name": "box",
       "upstream": "app/public/parts/heads/box.png",
       "copied": "assets/parts/heads/box.png",
@@ -200,6 +319,7 @@
     },
     {
       "category": "heads",
+      "index": 5,
       "name": "commodore",
       "upstream": "app/public/parts/heads/commodore.png",
       "copied": "assets/parts/heads/commodore.png",
@@ -212,7 +332,50 @@
       "binaryAlpha": true
     },
     {
+      "category": "heads",
+      "index": 6,
+      "name": "frame",
+      "upstream": "app/public/parts/heads/frame.png",
+      "copied": "assets/parts/heads/frame.png",
+      "sha256": "83d44f4bf411f2465a7c21509ce78b76a7477b14cd7e52804936de4a572e4e8e",
+      "dimensions": [
+        32,
+        32
+      ],
+      "frames": 1,
+      "binaryAlpha": true
+    },
+    {
+      "category": "heads",
+      "index": 7,
+      "name": "punch-bowl",
+      "upstream": "app/public/parts/heads/punch-bowl.png",
+      "copied": "assets/parts/heads/punch-bowl.png",
+      "sha256": "eda7911c22b435a687ec8d0886b78bdc41087b1bf0b3f4eace2cb624fcdf6298",
+      "dimensions": [
+        32,
+        32
+      ],
+      "frames": 1,
+      "binaryAlpha": true
+    },
+    {
       "category": "body",
+      "index": 0,
+      "name": "backpack",
+      "upstream": "app/public/parts/body/backpack.png",
+      "copied": "assets/parts/body/backpack.png",
+      "sha256": "3f59330fecfdf80675a87c2560963de593d6c50c0383c276e4d79bef39bac69c",
+      "dimensions": [
+        32,
+        32
+      ],
+      "frames": 1,
+      "binaryAlpha": true
+    },
+    {
+      "category": "body",
+      "index": 1,
       "name": "claws",
       "upstream": "app/public/parts/body/claws.png",
       "copied": "assets/parts/body/claws.png",
@@ -226,19 +389,7 @@
     },
     {
       "category": "body",
-      "name": "fire",
-      "upstream": "app/public/parts/body/fire.png",
-      "copied": "assets/parts/body/fire.png",
-      "sha256": "be5b987e18ab89faf873049c3a2dd99af7d1a72c76808942ce5a388e37d9aaef",
-      "dimensions": [
-        32,
-        32
-      ],
-      "frames": 1,
-      "binaryAlpha": true
-    },
-    {
-      "category": "body",
+      "index": 2,
       "name": "heart",
       "upstream": "app/public/parts/body/heart.png",
       "copied": "assets/parts/body/heart.png",
@@ -252,6 +403,7 @@
     },
     {
       "category": "body",
+      "index": 3,
       "name": "swag",
       "upstream": "app/public/parts/body/swag.png",
       "copied": "assets/parts/body/swag.png",
@@ -265,6 +417,21 @@
     },
     {
       "category": "body",
+      "index": 4,
+      "name": "tank",
+      "upstream": "app/public/parts/body/tank.png",
+      "copied": "assets/parts/body/tank.png",
+      "sha256": "bca3fc6540cac6e3d980550b1685d325241025a86d4904976099a39c51ad6df5",
+      "dimensions": [
+        32,
+        32
+      ],
+      "frames": 1,
+      "binaryAlpha": true
+    },
+    {
+      "category": "body",
+      "index": 5,
       "name": "wings",
       "upstream": "app/public/parts/body/wings.png",
       "copied": "assets/parts/body/wings.png",
@@ -277,7 +444,22 @@
       "binaryAlpha": true
     },
     {
+      "category": "body",
+      "index": 6,
+      "name": "fire",
+      "upstream": "app/public/parts/body/fire.png",
+      "copied": "assets/parts/body/fire.png",
+      "sha256": "be5b987e18ab89faf873049c3a2dd99af7d1a72c76808942ce5a388e37d9aaef",
+      "dimensions": [
+        32,
+        32
+      ],
+      "frames": 1,
+      "binaryAlpha": true
+    },
+    {
       "category": "top",
+      "index": 0,
       "name": "antenna",
       "upstream": "app/public/parts/top/antenna.png",
       "copied": "assets/parts/top/antenna.png",
@@ -291,6 +473,7 @@
     },
     {
       "category": "top",
+      "index": 1,
       "name": "bulb",
       "upstream": "app/public/parts/top/bulb.png",
       "copied": "assets/parts/top/bulb.png",
@@ -304,6 +487,7 @@
     },
     {
       "category": "top",
+      "index": 2,
       "name": "bunny-ears",
       "upstream": "app/public/parts/top/bunny-ears.png",
       "copied": "assets/parts/top/bunny-ears.png",
@@ -317,6 +501,21 @@
     },
     {
       "category": "top",
+      "index": 3,
+      "name": "disco",
+      "upstream": "app/public/parts/top/disco.png",
+      "copied": "assets/parts/top/disco.png",
+      "sha256": "2a1a75669e9dbb53059e91b21715712efe20b26654bd99c6c7018ca3399a1a37",
+      "dimensions": [
+        32,
+        32
+      ],
+      "frames": 1,
+      "binaryAlpha": true
+    },
+    {
+      "category": "top",
+      "index": 4,
       "name": "leaf",
       "upstream": "app/public/parts/top/leaf.png",
       "copied": "assets/parts/top/leaf.png",
@@ -330,10 +529,95 @@
     },
     {
       "category": "top",
+      "index": 5,
       "name": "lollypop",
       "upstream": "app/public/parts/top/lollypop.png",
       "copied": "assets/parts/top/lollypop.png",
       "sha256": "3c344e76e1e69631ad315f69ab2e24b500d809200f70164ecbf5fa4bd7671006",
+      "dimensions": [
+        32,
+        32
+      ],
+      "frames": 1,
+      "binaryAlpha": true
+    },
+    {
+      "category": "top",
+      "index": 6,
+      "name": "mohawk",
+      "upstream": "app/public/parts/top/mohawk.png",
+      "copied": "assets/parts/top/mohawk.png",
+      "sha256": "8b30243f1930a35cdd8da9640843ca8ce2ef132f94af112eefc6175c040ea92f",
+      "dimensions": [
+        32,
+        32
+      ],
+      "frames": 1,
+      "binaryAlpha": true
+    },
+    {
+      "category": "top",
+      "index": 7,
+      "name": "plant",
+      "upstream": "app/public/parts/top/plant.png",
+      "copied": "assets/parts/top/plant.png",
+      "sha256": "7fc2352e3e77d1796594901dc5b86a1913dcda8edc02c427ff9015e14db9eacc",
+      "dimensions": [
+        32,
+        32
+      ],
+      "frames": 1,
+      "binaryAlpha": true
+    },
+    {
+      "category": "top",
+      "index": 8,
+      "name": "radar",
+      "upstream": "app/public/parts/top/radar.png",
+      "copied": "assets/parts/top/radar.png",
+      "sha256": "5c49073e2f922c280d80b9abccc1065c9125872371a96adc362386543936f6ce",
+      "dimensions": [
+        32,
+        32
+      ],
+      "frames": 1,
+      "binaryAlpha": true
+    },
+    {
+      "category": "top",
+      "index": 9,
+      "name": "bun",
+      "upstream": "app/public/parts/top/bun.png",
+      "copied": "assets/parts/top/bun.png",
+      "sha256": "30bb905c7af3682a67a1f548a7b75c943a067c07918198ef470f002caf1661ec",
+      "dimensions": [
+        32,
+        32
+      ],
+      "frames": 1,
+      "binaryAlpha": true
+    },
+    {
+      "category": "top",
+      "index": 10,
+      "name": "horns",
+      "upstream": "app/public/parts/top/horns.png",
+      "copied": "assets/parts/top/horns.png",
+      "sha256": "762e2ac6f23503d154db7daba664e829cb90bf4eeca31b2a62da80764071e29f",
+      "dimensions": [
+        32,
+        32
+      ],
+      "frames": 1,
+      "binaryAlpha": true
+    },
+    {
+      "category": "top",
+      "index": 11,
+      "name": "spikes",
+      "upstream": "app/public/parts/top/spikes.png",
+      "copied": "assets/parts/top/spikes.png",
+      "sha256": "26f3c9a7cd296efdafecf623744651e25ee9e4db9262c77fb7f45ac5a0cd9cb9",
       "dimensions": [
         32,
         32

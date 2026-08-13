@@ -58,9 +58,18 @@ impl CompletionPetSurfaceMode {
 
 const PET_NAMES: &[&str] = &["halo-bot", "haloform"];
 
-const HALO_BOT_LOADOUTS: &[&str] = &[
-    "3051", "1462", "5324", "c160", "2515", "4232", "d351", "6124", "9132", "f061",
-];
+const HALO_BOT_PART_COUNTS: [u32; 4] = [16, 8, 7, 12];
+
+fn valid_halo_bot_loadout(value: &str) -> bool {
+    let normalized = value.to_ascii_lowercase();
+    if normalized.len() != HALO_BOT_PART_COUNTS.len() {
+        return false;
+    }
+    normalized
+        .chars()
+        .zip(HALO_BOT_PART_COUNTS)
+        .all(|(character, count)| character.to_digit(36).is_some_and(|index| index < count))
+}
 
 const PET_SESSION_STATUSES: &[&str] =
     &["idle", "working", "attention", "inactive", "done", "error"];
@@ -256,10 +265,11 @@ impl CompletionPetSummon {
             return Err("Completion Pet selection is invalid".to_string());
         }
         if self.pet == "halo-bot" {
-            if let Some(loadout) = self.loadout.as_deref() {
-                if !HALO_BOT_LOADOUTS.contains(&loadout) {
+            if let Some(loadout) = self.loadout.as_mut() {
+                if !valid_halo_bot_loadout(loadout) {
                     return Err("Halo Bot loadout is invalid".to_string());
                 }
+                *loadout = loadout.to_ascii_lowercase();
             }
         } else if self.loadout.is_some() {
             return Err("Only Halo Bot accepts a loadout".to_string());
@@ -1454,7 +1464,7 @@ mod tests {
     }
 
     #[test]
-    fn summon_validation_preserves_pet_and_loadout_allowlists() {
+    fn summon_validation_accepts_the_complete_pixabots_catalog() {
         let valid = focus_summon("focus-1", false);
         assert!(CompletionPetSummon {
             pet: "halo-bot".to_string(),
@@ -1463,6 +1473,21 @@ mod tests {
         }
         .validate()
         .is_ok());
+        assert!(CompletionPetSummon {
+            pet: "halo-bot".to_string(),
+            loadout: Some("f76b".to_string()),
+            ..valid.clone()
+        }
+        .validate()
+        .is_ok());
+        let uppercase = CompletionPetSummon {
+            pet: "halo-bot".to_string(),
+            loadout: Some("F76B".to_string()),
+            ..valid.clone()
+        }
+        .validate()
+        .unwrap();
+        assert_eq!(uppercase.loadout.as_deref(), Some("f76b"));
         assert!(CompletionPetSummon {
             pet: "halo-bot".to_string(),
             loadout: Some("unknown".to_string()),

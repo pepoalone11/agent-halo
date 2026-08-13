@@ -8,7 +8,7 @@ This asset family preserves active runtime provenance plus historical Pet source
 
 - Main/default identity: **Halo Bot**. **Haloform** is the only other selectable identity. Earlier companions remain historical source evidence but are removed from the public runtime roster.
 - Human decision: one global Pet identity is used across ambient, session, group, detail, and Completion surfaces. Workspace/project hashing remains retired.
-- The Pet preference key is `agent-halo.pet`; `agent-halo.mascot` remains a one-way legacy migration source. Fresh, retired, unknown, or malformed storage normalizes and rewrites to Halo Bot. Halo Bot loadout selection is separately persisted at `agent-halo.halo-bot-loadout`; it defaults to `3051` and allows only the ten curated loadouts, with no project hashing or randomization.
+- The Pet preference key is `agent-halo.pet`; `agent-halo.mascot` remains a one-way legacy migration source. Fresh, retired, unknown, or malformed storage normalizes and rewrites to Halo Bot. Halo Bot selection is separately persisted at `agent-halo.halo-bot-loadout`; it defaults to `3051` and accepts every valid four-character ID in the pinned `16 × 8 × 7 × 12` catalog, with no project hashing or randomization.
 - Halo Bot and Haloform both display at `36×36` session/detail and `30×30` ambient inside the existing `66×36` / `58×30` wrappers. Haloform keeps a tracked `96×96` source/Completion master.
 - Every active Pet delivers Idle (3 frames), Working (3), Done (4), Attention (3), and Error (3). Halo Bot uses its deterministic layered Pixabots rig; Haloform uses its approved provider-derived canonical master, explicit semantic masks, and deterministic integer offsets.
 - `agent-halo.pet-motion-map` may redirect semantic states to body motions. This never changes status semantics or the detached Signal V4 layer.
@@ -22,9 +22,9 @@ The complete standalone provider raster, compact receipt, canonical native96 mas
 
 ## Halo Bot provenance
 
-On 2026-07-22, Mahiro explicitly approved the reviewed Pixabots motion family as the fresh/default main Pet. `halo-bot` is one Pet identity with ten user-selectable loadouts (`3051`, `1462`, `5324`, `c160`, `2515`, `4232`, `d351`, `6124`, `9132`, `f061`), not ten Pet identities; `3051` is the default. The body strips are exact `36×36` cell PNGs with binary alpha (three-frame `108×36` states and four-frame `144×36` Done), while Signal V4 remains a shared separate layer.
+On 2026-07-22, Mahiro explicitly approved the reviewed Pixabots motion family as the fresh/default main Pet. On 2026-08-13 he requested the complete family, so `halo-bot` now exposes all 10,752 combinations from the pinned catalog while remaining one Pet identity; `3051` stays the default and the original ten IDs remain valid. The runtime composes four exact source layers and applies state motion in CSS, while Signal V4 remains a shared separate layer.
 
-Tracked MIT source layers, copied-part receipts, deterministic compositor, review overview, and promotion receipt live at `source/pixabots-loadout-motion-v1/`. The source is [pablostanley/pixabots](https://github.com/pablostanley/pixabots) pinned to `b384de38a1ac34bdde443e375bb1782841507a75`; no image generation was used. A clean-directory rebuild from the tracked 26 layer sheets reproduces all 50 runtime strips byte-for-byte. The asset is human-approved for runtime integration but remains an overall integration candidate until native validation.
+Tracked MIT source layers, copied-part receipts, deterministic compositor history, review overview, and promotion receipt live at `source/pixabots-loadout-motion-v1/`. The source is [pablostanley/pixabots](https://github.com/pablostanley/pixabots) pinned to `b384de38a1ac34bdde443e375bb1782841507a75`; no image generation was used. Runtime promotion copies all 43 pinned sheets under `public/.../halo-bot/parts/`, and the public manifest records every hash. The asset is human-approved for runtime integration but remains an overall integration candidate until native validation.
 
 ## Source and QA
 

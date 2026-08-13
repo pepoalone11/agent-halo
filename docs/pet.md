@@ -4,7 +4,7 @@ Production workflow for future identities and Halo Bot loadouts: [`pet-productio
 
 ## Phase 1 contract
 
-Agent Halo uses **Pet** as the product-facing companion concept. The selectable global roster contains only **Halo Bot** and **Haloform**. Halo Bot remains the fresh/default identity and has ten curated user-selectable loadouts; Haloform is the approved provider-derived CRT companion built from a native96 master and explicit semantic masks. Both remain event/state projections rather than persistent desktop-pet simulations.
+Agent Halo uses **Pet** as the product-facing companion concept. The selectable global roster contains only **Halo Bot** and **Haloform**. Halo Bot remains the fresh/default identity and exposes all 10,752 combinations from the pinned Pixabots catalog; Haloform is the approved provider-derived CRT companion built from a native96 master and explicit semantic masks. Both remain event/state projections rather than persistent desktop-pet simulations.
 
 The Pet uses schema-v2 summons with three explicit purposes:
 
@@ -56,13 +56,13 @@ This keeps the OS-owned fallback available when the renderer/app is unavailable 
 
 ## Preference migration
 
-The preference key is `agent-halo.pet`. When absent, Agent Halo reads the legacy `agent-halo.mascot` value and writes the normalized Pet preference. Fresh installs default to Halo Bot. Only `halo-bot` and `haloform` are valid; retired, unknown, or malformed stored values normalize and rewrite to Halo Bot. Halo Bot's independent `agent-halo.halo-bot-loadout` key accepts only `3051`, `1462`, `5324`, `c160`, `2515`, `4232`, `d351`, `6124`, `9132`, or `f061` and defaults to `3051`. The loadout is global, user-selected, and never project-hashed or randomized. Product UI, accessibility copy, types, and settings use **Pet**.
+The preference key is `agent-halo.pet`. When absent, Agent Halo reads the legacy `agent-halo.mascot` value and writes the normalized Pet preference. Fresh installs default to Halo Bot. Only `halo-bot` and `haloform` are valid; retired, unknown, or malformed stored values normalize and rewrite to Halo Bot. Halo Bot's independent `agent-halo.halo-bot-loadout` key stores one four-character base36 ID in `eyes / heads / body / top` order and defaults to `3051`. Validation accepts the complete pinned catalog bounds (`16 × 8 × 7 × 12 = 10,752`) while malformed or out-of-range IDs normalize to the default. The loadout is global, user-selected, and never project-hashed or randomized. Product UI, accessibility copy, types, and settings use **Pet**.
 
 `agent-halo.pet-motion-map` stores one validated presentation mapping from each truthful Letta body state (`idle`, `working`, `attention`, `done`, `error`) to one of those five motion families. The default mapping is identity. Changing the mapping affects only the body strip and playback—for example, `working → idle` keeps semantic `data-state="working"`, Working copy/status precedence, Keep display awake behavior, and the independent Signal V4 activity icon unchanged.
 
 ## Global Halo Bot
 
-Halo Bot uses the MIT Pixabots layered character system pinned in the tracked asset provenance. One four-part rig composes face/eyes, head shell, body/outfit, and top accessory; Agent Halo preserves the authored palettes and adds deterministic layered `idle`, `working`, `attention`, `done`, and `error` motion. The ten approved loadouts share that motion contract while remaining one persisted Pet identity. Signal V4 stays a detached semantic layer and is never baked into the body strips.
+Halo Bot uses the MIT Pixabots layered character system pinned in the tracked asset provenance. One four-part rig composes face/eyes, head shell, body/outfit, and top accessory. The runtime ships the complete 43-part source catalog and composes the selected ID directly, so every one of the 10,752 combinations is available without pre-generating tens of thousands of state strips. Agent Halo preserves the authored palettes and applies deterministic presentation motion for `idle`, `working`, `attention`, `done`, and `error`; animated eye parts retain their own blink/sequence playback. Signal V4 stays a detached semantic layer and is never baked into the body.
 
 ## Global Haloform
 
