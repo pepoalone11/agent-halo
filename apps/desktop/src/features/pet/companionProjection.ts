@@ -93,7 +93,6 @@ const areSummonsEqual = (left: ICompletionPetSummon, right: ICompletionPetSummon
   && left.loadout === right.loadout
   && left.petSize === right.petSize
   && left.nextPhase === right.nextPhase
-  && (left.purpose !== "manual-companion" || right.purpose !== "manual-companion" || left.requestedExerciseId === right.requestedExerciseId)
   && (left.purpose !== "focus-completion" || right.purpose !== "focus-completion" || left.movementBreakEnabled === right.movementBreakEnabled);
 
 export const areCompanionProjectionsEqual = (left: ICompanionProjection, right: ICompanionProjection): boolean =>

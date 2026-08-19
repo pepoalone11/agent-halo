@@ -2,7 +2,6 @@ import type { HaloPetName } from "../session/HaloPet";
 import type { HaloBotLoadout } from "../session/haloBot";
 import type { HaloPetMotionMapping, HaloPetSemanticState } from "../session/petMotion";
 import type { ActivityKind, ISessionSummary } from "../session/types";
-import type { MovementExerciseId } from "../movement/types";
 import type { CompletionPetSize } from "./preferences";
 
 export type CompletionPetBreakPhase = "short-break" | "long-break";
@@ -27,7 +26,6 @@ export interface IFocusCompletionPetSummon extends ICompletionPetSummonBase {
 export interface IManualCompanionPetSummon extends ICompletionPetSummonBase {
   purpose: "manual-companion";
   nextPhase: null;
-  requestedExerciseId?: MovementExerciseId;
 }
 
 export interface ISetupPreviewPetSummon extends ICompletionPetSummonBase {
