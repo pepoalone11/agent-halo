@@ -2,6 +2,13 @@ import type { IUsageMetricGroup, IUsageProviderConfig } from "./types";
 
 export const USAGE_PROVIDERS: IUsageProviderConfig[] = [
   {
+    id: "agy",
+    label: "Antigravity",
+    command: "agy_usage",
+    iconPath: "/provider-icons/antigravity.svg",
+    color: "#4285f4",
+  },
+  {
     id: "codex",
     label: "Codex",
     command: "codex_usage",
@@ -14,13 +21,6 @@ export const USAGE_PROVIDERS: IUsageProviderConfig[] = [
         url: "https://chatgpt.com/codex/settings/usage",
       },
     ],
-  },
-  {
-    id: "agy",
-    label: "Antigravity",
-    command: "agy_usage",
-    iconPath: "/provider-icons/antigravity.svg",
-    color: "#4285f4",
   },
   {
     id: "claude",
